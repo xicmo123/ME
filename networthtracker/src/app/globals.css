@@ -1,7 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* 載入雙像素字體：Press Start 2P (英文極致復古) + DotGothic16 (日文/中文經典像素風) */
+@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
@@ -131,11 +133,11 @@
 }
 
 /* ==========================================================================
-   像素藝術風格 (Pixel Art / 8-Bit Style) 專屬覆寫
+   像素藝術風格 (Pixel Art / 8-Bit Style) 專屬全域覆寫
    ========================================================================== */
 
 .theme-pixel {
-  font-family: 'Press Start 2P', 'Courier New', Courier, monospace !important;
+  font-family: 'Press Start 2P', 'DotGothic16', "Courier New", Courier, monospace, "微軟正黑體" !important;
   --radius: 0px !important;
   --radius-sm: 0px !important;
   --radius-md: 0px !important;
@@ -145,30 +147,36 @@
   --radius-3xl: 0px !important;
 }
 
+/* 強制所有文字在像素模式下套用像素風字體 */
 .theme-pixel * {
+  font-family: 'Press Start 2P', 'DotGothic16', "Courier New", Courier, monospace, "微軟正黑體" !important;
   border-radius: 0px !important;
 }
 
+/* 針對卡片、按鈕、輸入框、區塊加上經典的 8-bit 粗黑外框與像素陰影 */
 .theme-pixel section, 
 .theme-pixel div[data-slot="card"], 
 .theme-pixel input, 
 .theme-pixel select, 
 .theme-pixel button,
 .theme-pixel .rounded-2xl,
-.theme-pixel .rounded-[2rem],
+.theme-pixel .rounded-\[2rem\],
 .theme-pixel .rounded-full {
   border-radius: 0px !important;
   border: 3px solid #000000 !important;
-  box-shadow: 4px 4px 0px #000000 !important;
+  box-shadow: 5px 5px 0px #000000 !important;
+  background-image: none !important; /* 移除原有漸層 */
 }
 
+/* 按鈕點擊時往下壓的 8-bit 動效 */
 .theme-pixel button:active,
 .theme-pixel button[data-slot="button"]:active {
   transform: translate(2px, 2px) !important;
   box-shadow: 2px 2px 0px #000000 !important;
 }
 
+/* 輸入框內縮陰影效果 */
 .theme-pixel select,
 .theme-pixel input {
-  box-shadow: inset 2px 2px 0px rgba(0,0,0,0.2) !important;
+  box-shadow: inset 2px 2px 0px rgba(0,0,0,0.15) !important;
 }

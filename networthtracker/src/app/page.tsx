@@ -13,11 +13,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Form,
-  FormControl,
-  FormDescription,
   FormItem,
   FormLabel,
+  FormControl,
+  FormDescription,
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -595,9 +594,9 @@ export default function HomePage() {
   }, [accounts]);
 
   return (
-    <main className={`min-h-screen px-4 py-8 text-slate-900 sm:px-6 lg:px-8 ${
+    <main className={`min-h-screen px-4 py-8 text-slate-900 sm:px-6 lg:px-8 transition-colors duration-300 ${
       currentTheme === "pixel" 
-        ? "theme-pixel bg-zinc-100" 
+        ? "theme-pixel bg-zinc-200" 
         : "bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.12),_transparent_35%),linear-gradient(135deg,_#f8fafc_0%,_#f1f5f9_100%)]"
     }`}>
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
@@ -631,13 +630,13 @@ export default function HomePage() {
                   {showForm ? "收合新增表單" : "展開新增表單"}
                 </Button>
 
-                {/* 主題切換控制按鈕 */}
+                {/* 主題風格持久化切換選單 */}
                 <div className="flex rounded-full border border-slate-200 bg-white p-1 shadow-sm items-center gap-1">
                   <button
                     type="button"
                     onClick={() => handleThemeChange("original")}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                      currentTheme === "original" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
+                      currentTheme === "original" ? "bg-slate-900 text-white font-bold" : "text-slate-600 hover:bg-slate-100"
                     }`}
                   >
                     ✨ 現代原版
@@ -645,7 +644,7 @@ export default function HomePage() {
                   <button
                     type="button"
                     onClick={() => handleThemeChange("pixel")}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
                       currentTheme === "pixel" ? "bg-amber-500 text-black font-bold" : "text-slate-600 hover:bg-slate-100"
                     }`}
                   >
@@ -820,7 +819,8 @@ export default function HomePage() {
               {showForm ? (
                 <div ref={formSectionRef}>
                   <CardContent>
-                    <Form onSubmit={handleSubmit}>
+                    {/* 使用標準 HTML 表單標籤，解決 Shadcn Form Context 崩潰與按鈕失效問題 */}
+                    <form onSubmit={handleSubmit} className="space-y-4">
                     <FormItem>
                       <FormLabel htmlFor="name">名稱</FormLabel>
                       <FormControl>
@@ -1042,7 +1042,7 @@ export default function HomePage() {
                           {loading ? "儲存中..." : editingAccountId ? "儲存修改" : "新增帳戶"}
                         </Button>
                       </CardFooter>
-                    </Form>
+                    </form>
                   </CardContent>
                 </div>
               ) : null}
