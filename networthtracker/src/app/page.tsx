@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ChevronDown, ChevronUp, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,8 +86,6 @@ type Account = {
   apiSecret: string | null;
   currentPrice: number | null;
   currentValue: number;
-  monthlyDeductionAmount: number | null;
-  deductionDate: number | null;
   createdAt: string;
 };
 
@@ -136,13 +134,12 @@ export default function HomePage() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(true);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<"day" | "month" | "quarter" | "year">("day");
   const [mounted, setMounted] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<"original" | "pixel">("original");
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const [usdToTwdRate, setUsdToTwdRate] = useState<number | null>(null);
+  const formSectionRef = useRef<HTMLDivElement | null>(null);
 
   const isCryptoApiMode = formData.category === "CRYPTO" && formData.isApiConnected;
   const requiresSymbol = symbolRequiredCategories.includes(formData.category) && !isCryptoApiMode;
@@ -168,10 +165,7 @@ export default function HomePage() {
 
   useEffect(() => {
     setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem("networth-tracker-theme");
+    const savedTheme = localStorage.getItem("networth-tracker-theme");
     if (savedTheme === "pixel" || savedTheme === "original") {
       setCurrentTheme(savedTheme);
     }
@@ -180,23 +174,13 @@ export default function HomePage() {
   useEffect(() => {
     void (async () => {
       await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]);
-      await fetchExchangeRate();
     })();
   }, []);
 
-  async function fetchExchangeRate() {
-    try {
-      const response = await fetch("/api/test-fetch-prices");
-      const result = await response.json().catch(() => null);
-      const rate = Number(result?.usdToTwdRate ?? 0);
-      if (Number.isFinite(rate) && rate > 0) {
-        setUsdToTwdRate(rate);
-      }
-      await Promise.allSettled([fetchAccounts(), fetchHistory()]);
-    } catch (rateError) {
-      console.error("Exchange rate request failed:", rateError);
-    }
-  }
+  const handleThemeChange = (theme: "original" | "pixel") => {
+    setCurrentTheme(theme);
+    localStorage.setItem("networth-tracker-theme", theme);
+  };
 
   async function fetchAccounts() {
     setError(null);
@@ -243,7 +227,7 @@ export default function HomePage() {
   function resetForm() {
     setFormData(defaultForm);
     setEditingAccountId(null);
-    setShowForm(false);
+    setShowForm(true);
   }
 
   function startEdit(account: Account) {
@@ -258,21 +242,17 @@ export default function HomePage() {
       apiSource: account.apiSource ?? "BITFINEX",
       apiKey: account.apiKey ?? "",
       apiSecret: account.apiSecret ?? "",
-      monthlyDeductionAmount: account.monthlyDeductionAmount != null ? String(account.monthlyDeductionAmount) : "",
-      deductionDate: account.deductionDate != null ? String(account.deductionDate) : "",
+      monthlyDeductionAmount: "",
+      deductionDate: "",
     });
     setEditingAccountId(account.id);
     setShowForm(true);
     setError(null);
     setMessage(null);
     setSyncMessage(null);
-  }
-
-  function toggleGroup(groupTitle: string) {
-    setCollapsedGroups((prev) => ({
-      ...prev,
-      [groupTitle]: !prev[groupTitle],
-    }));
+    requestAnimationFrame(() => {
+      formSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -382,11 +362,6 @@ export default function HomePage() {
     }
   }
 
-  const handleThemeChange = (theme: "original" | "pixel") => {
-    setCurrentTheme(theme);
-    window.localStorage.setItem("networth-tracker-theme", theme);
-  };
-
   async function handleSyncPrices() {
     setSyncing(true);
     setError(null);
@@ -401,15 +376,9 @@ export default function HomePage() {
         throw new Error(result?.message || "同步最新報價失敗。" );
       }
 
-      const rate = Number(result?.usdToTwdRate ?? 0);
-      if (Number.isFinite(rate) && rate > 0) {
-        setUsdToTwdRate(rate);
-      }
       await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]);
-      const updatedCount =
-        Number(result?.databaseUpdate?.manualUpdates ?? 0) +
-        Number(result?.databaseUpdate?.bitfinexUpdates ?? 0);
-      setSyncMessage(`已同步最新報價，成功更新 ${updatedCount} 筆帳戶價格。` );
+      const updatedCount = result?.databaseUpdate?.updates?.length ?? 0;
+      setSyncMessage(`已同步最新報價，成功更新 ${updatedCount} 類型的帳戶價格。` );
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : "同步最新報價時發生錯誤。" );
     } finally {
@@ -428,128 +397,19 @@ export default function HomePage() {
     return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
   }
 
-  function getTaipeiParts(date: Date) {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Taipei",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    }).formatToParts(date);
-
-    return {
-      year: Number(parts.find((part) => part.type === "year")?.value ?? "0"),
-      month: Number(parts.find((part) => part.type === "month")?.value ?? "1"),
-      day: Number(parts.find((part) => part.type === "day")?.value ?? "1"),
-    };
-  }
-
-  function getTaipeiDateKey(date: Date) {
-    return date.toLocaleDateString("zh-TW", {
-      timeZone: "Asia/Taipei",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  }
-
-  function getTaipeiTimeframeLabel(date: Date, selectedTimeframe: typeof timeframe) {
-    if (selectedTimeframe === "day") {
-      return date.toLocaleDateString("zh-TW", {
-        timeZone: "Asia/Taipei",
-        month: "numeric",
-        day: "numeric",
-      });
-    }
-
-    if (selectedTimeframe === "month") {
-      const parts = getTaipeiParts(date);
-      return `${parts.year} / ${String(parts.month).padStart(2, "0")}`;
-    }
-
-    if (selectedTimeframe === "quarter") {
-      const parts = getTaipeiParts(date);
-      const quarter = Math.floor((parts.month - 1) / 3) + 1;
-      return `${parts.year}-Q${quarter}`;
-    }
-
-    const parts = getTaipeiParts(date);
-    return `${parts.year} 年`;
-  }
-
-  function getTaipeiDayReference(offsetDays: number) {
-    const now = new Date();
-    const todayParts = getTaipeiParts(now);
-    const taipeiMidnightUtc = new Date(Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day, 0, 0, 0));
-    taipeiMidnightUtc.setUTCDate(taipeiMidnightUtc.getUTCDate() + offsetDays);
-    return taipeiMidnightUtc;
-  }
-
-  function buildFallbackHistory(currentNetWorth: number, selectedTimeframe: typeof timeframe) {
+  function buildFallbackHistory(currentNetWorth: number) {
     const base = Math.max(1000, Number(currentNetWorth || 10000));
     const dailyDrop = Math.max(1000, Math.min(2000, base * 0.0008));
-
-    if (selectedTimeframe === "day") {
-      return Array.from({ length: 7 }, (_, index) => {
-        const date = getTaipeiDayReference(index - 6);
-        const value = index === 6 ? currentNetWorth : Math.max(1000, base - (6 - index) * dailyDrop);
-        return {
-          id: `fallback-day-${index}`,
-          date: date.toISOString(),
-          totalAssets: value,
-          totalLiabilities: Math.max(0, value * 0.08),
-          netWorth: value,
-          label: getTaipeiTimeframeLabel(date, "day"),
-        } as HistoryPoint;
-      });
-    }
-
-    if (selectedTimeframe === "month") {
-      return Array.from({ length: 6 }, (_, index) => {
-        const current = getTaipeiDayReference(0);
-        current.setUTCMonth(current.getUTCMonth() - (5 - index));
-        const value = Math.max(1000, base - (5 - index) * dailyDrop * 5);
-        return {
-          id: `fallback-month-${index}`,
-          date: current.toISOString(),
-          totalAssets: value,
-          totalLiabilities: Math.max(0, value * 0.08),
-          netWorth: value,
-          label: getTaipeiTimeframeLabel(current, "month"),
-        } as HistoryPoint;
-      });
-    }
-
-    if (selectedTimeframe === "quarter") {
-      return Array.from({ length: 4 }, (_, index) => {
-        const current = getTaipeiDayReference(0);
-        current.setUTCMonth(current.getUTCMonth() - (3 - index) * 3);
-        const value = Math.max(1000, base - (3 - index) * dailyDrop * 15);
-        return {
-          id: `fallback-quarter-${index}`,
-          date: current.toISOString(),
-          totalAssets: value,
-          totalLiabilities: Math.max(0, value * 0.08),
-          netWorth: value,
-          label: getTaipeiTimeframeLabel(current, "quarter"),
-        } as HistoryPoint;
-      });
-    }
-
-    return Array.from({ length: 3 }, (_, index) => {
-      const current = getTaipeiDayReference(0);
-      current.setUTCFullYear(current.getUTCFullYear() - (2 - index));
-      const value = Math.max(1000, base - (2 - index) * dailyDrop * 25);
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - index));
+      const value = Math.max(1000, base - index * dailyDrop);
       return {
-        id: `fallback-year-${index}`,
-        date: current.toISOString(),
+        id: `fallback-${index}`,
+        date: date.toISOString(),
         totalAssets: value,
         totalLiabilities: Math.max(0, value * 0.08),
         netWorth: value,
-        label: getTaipeiTimeframeLabel(current, "year"),
       } as HistoryPoint;
     });
   }
@@ -559,77 +419,82 @@ export default function HomePage() {
       .filter((point) => Number.isFinite(Number(point.netWorth)))
       .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime());
 
-    const getKey = (date: Date, timeframeType: typeof timeframe) => {
-      const parts = getTaipeiParts(date);
-      if (timeframeType === "month") {
-        return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
-      }
-      if (timeframeType === "quarter") {
-        const quarter = Math.floor((parts.month - 1) / 3) + 1;
-        return `${parts.year}-Q${quarter}`;
-      }
-      if (timeframeType === "year") {
-        return `${parts.year}`;
-      }
-      return getTaipeiDateKey(date);
-    };
-
-    const buildPoint = (date: Date, value: number, index: number) => ({
-      id: `chart-${selectedTimeframe}-${index}`,
-      date: date.toISOString(),
-      totalAssets: value,
-      totalLiabilities: Math.max(0, value * 0.08),
-      netWorth: value,
-      label: getTaipeiTimeframeLabel(date, selectedTimeframe),
-    });
+    const buildLabel = (date: Date) =>
+      date.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" });
 
     if (selectedTimeframe === "day") {
-      const today = getTaipeiDayReference(0);
-      const dailyDrop = Math.max(1000, Math.min(2000, currentNetWorth * 0.0008 || 1000));
-      const latestPointByDay = new Map<string, HistoryPoint>();
+      const today = new Date();
+      const hasTodayPoint = sorted.some((point) => {
+        const date = new Date(point.date);
+        return !Number.isNaN(date.getTime()) && date.toDateString() === today.toDateString();
+      });
 
-      for (const point of sorted) {
-        const key = getTaipeiDateKey(new Date(point.date));
-        const existing = latestPointByDay.get(key);
-        if (!existing || new Date(point.date).getTime() > new Date(existing.date).getTime()) {
-          latestPointByDay.set(key, point);
-        }
+      if (sorted.length === 0 || !hasTodayPoint) {
+        const dailyDrop = Math.max(1000, Math.min(2000, currentNetWorth * 0.0008 || 1000));
+        return Array.from({ length: 7 }, (_, index) => {
+          const date = new Date(today);
+          date.setDate(today.getDate() - (6 - index));
+          const value = index === 6 ? currentNetWorth : Math.max(0, currentNetWorth - (6 - index) * dailyDrop);
+          return {
+            id: `chart-day-${index}`,
+            date: date.toISOString(),
+            totalAssets: value,
+            totalLiabilities: Math.max(0, value * 0.08),
+            netWorth: value,
+            label: buildLabel(date),
+          };
+        });
       }
 
-      return Array.from({ length: 7 }, (_, index) => {
-        const date = getTaipeiDayReference(index - 6);
-        const key = getTaipeiDateKey(date);
-        if (index === 6) {
-          return buildPoint(date, currentNetWorth, index);
-        }
-
-        const point = latestPointByDay.get(key);
-        const value = point ? Number(point.netWorth ?? 0) : Math.max(1000, currentNetWorth - (6 - index) * dailyDrop);
-        return buildPoint(date, value, index);
+      return sorted.slice(-7).map((point) => {
+        const date = new Date(point.date);
+        const isToday = date.toDateString() === today.toDateString();
+        const value = isToday ? currentNetWorth : Number(point.netWorth ?? 0);
+        return {
+          ...point,
+          netWorth: value,
+          totalAssets: value,
+          totalLiabilities: Math.max(0, value * 0.08),
+          label: buildLabel(date),
+        };
       });
     }
 
     if (sorted.length === 0) {
-      return buildFallbackHistory(currentNetWorth, selectedTimeframe);
+      return buildFallbackHistory(currentNetWorth).map((point) => ({
+        ...point,
+        label: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
+      }));
     }
 
     const grouped = new Map<string, HistoryPoint>();
 
     for (const point of sorted) {
-      const key = getKey(new Date(point.date), selectedTimeframe);
-      const existing = grouped.get(key);
-      if (!existing || new Date(point.date).getTime() > new Date(existing.date).getTime()) {
-        grouped.set(key, point);
+      const date = new Date(point.date);
+      let key = "";
+
+      if (selectedTimeframe === "month") {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      } else if (selectedTimeframe === "quarter") {
+        const quarter = Math.floor(date.getMonth() / 3) + 1;
+        key = `${date.getFullYear()}-Q${quarter}`;
+      } else {
+        key = `${date.getFullYear()}`;
       }
+
+      grouped.set(key, point);
     }
 
-    const maxLabels = selectedTimeframe === "month" ? 6 : selectedTimeframe === "quarter" ? 4 : 3;
     return Array.from(grouped.entries())
-      .slice(-maxLabels)
+      .slice(-12)
       .map(([key, point]) => ({
         ...point,
-        netWorth: Number(point.netWorth ?? 0),
-        label: getTaipeiTimeframeLabel(new Date(point.date), selectedTimeframe),
+        label:
+          selectedTimeframe === "month"
+            ? key.replace("-", " / ")
+            : selectedTimeframe === "quarter"
+              ? key
+              : key,
       }));
   }
 
@@ -644,25 +509,19 @@ export default function HomePage() {
   const chartData = useMemo(() => buildChartSeries(history, timeframe, summary.netWorth), [history, timeframe, summary.netWorth]);
 
   const trendDelta = useMemo(() => {
-    const yesterdayKey = getTaipeiDateKey(getTaipeiDayReference(-1));
-    const yesterdayPoints = history
-      .map((point) => ({
-        point,
-        key: getTaipeiDateKey(new Date(point.date)),
-        timestamp: new Date(point.date).getTime(),
-      }))
-      .filter((item) => item.key === yesterdayKey)
-      .sort((left, right) => left.timestamp - right.timestamp);
-
-    const yesterdayPoint = yesterdayPoints.length ? yesterdayPoints[yesterdayPoints.length - 1].point : null;
-    const yesterdayValue = Number(yesterdayPoint?.netWorth ?? 0);
-
-    if (!yesterdayValue) {
+    if (chartData.length < 2) {
       return 0;
     }
 
-    return ((summary.netWorth - yesterdayValue) / yesterdayValue) * 100;
-  }, [history, summary.netWorth]);
+    const firstValue = Number(chartData[0]?.netWorth ?? 0);
+    const lastValue = Number(chartData[chartData.length - 1]?.netWorth ?? 0);
+
+    if (!firstValue) {
+      return 0;
+    }
+
+    return ((lastValue - firstValue) / firstValue) * 100;
+  }, [chartData]);
 
   const renderedAccountGroups = useMemo(() => {
     return accountGroups
@@ -735,186 +594,153 @@ export default function HomePage() {
       .filter(Boolean);
   }, [accounts]);
 
-  useEffect(() => {
-    setCollapsedGroups((prev) => {
-      const next = { ...prev };
-      renderedAccountGroups.forEach((group) => {
-        if (!group) {
-          return;
-        }
-        if (next[group.title] !== undefined) {
-          return;
-        }
-        next[group.title] = group.cards.length > 2 || ["【固定資產】", "【負債與應付款】"].includes(group.title);
-      });
-      return next;
-    });
-  }, [renderedAccountGroups]);
-
   return (
-    <>
-      <main
-        className={`min-h-screen px-4 py-8 text-slate-900 sm:px-6 lg:px-8 ${
-          currentTheme === "pixel"
-            ? "theme-pixel bg-zinc-200"
-            : "bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.12),_transparent_35%),linear-gradient(135deg,_#f8fafc_0%,_#f1f5f9_100%)]"
-        }`}
-      >
+    <main className={`min-h-screen px-4 py-8 text-slate-900 sm:px-6 lg:px-8 ${
+      currentTheme === "pixel" 
+        ? "theme-pixel bg-zinc-100" 
+        : "bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.12),_transparent_35%),linear-gradient(135deg,_#f8fafc_0%,_#f1f5f9_100%)]"
+    }`}>
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-        <section className="grid gap-6 xl:grid-cols-[0.52fr_1fr]">
-          <div className="rounded-[2rem] border border-slate-200/70 bg-white/95 p-6 shadow-[0_22px_50px_-24px_rgba(15,23,42,0.22)] backdrop-blur">
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.28em] text-slate-400">
-                      NetWorth Tracker
-                    </p>
-                    <p className="mt-3 text-sm font-medium uppercase tracking-[0.25em] text-slate-500">
-                      目前淨資產
-                    </p>
-                  </div>
-                  <div className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                    {trendDelta === 0 ? "穩定" : formatPercent(trendDelta)}
-                  </div>
+        <section className="rounded-[2rem] border border-slate-200/70 bg-white/80 p-6 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.35)] backdrop-blur xl:p-8">
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-center xl:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-sm font-medium uppercase tracking-[0.3em] text-emerald-600">
+                NetWorthTracker
+              </p>
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
+                淨資產一眼看懂，財務心智清爽。
+              </h1>
+              <p className="mt-4 max-w-xl text-base leading-7 text-slate-600">
+                追蹤帳戶、匯率與自動扣款，讓現金流、投資組合與負債狀態變得清楚而可掌控。
+              </p>
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <Button onClick={handleSyncPrices} disabled={syncing} className="rounded-full">
+                  {syncing ? (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      同步中...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      同步最新報價
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" className="rounded-full" onClick={() => setShowForm((value) => !value)}>
+                  {showForm ? "收合新增表單" : "展開新增表單"}
+                </Button>
+
+                {/* 主題切換控制按鈕 */}
+                <div className="flex rounded-full border border-slate-200 bg-white p-1 shadow-sm items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleThemeChange("original")}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                      currentTheme === "original" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    ✨ 現代原版
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleThemeChange("pixel")}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                      currentTheme === "pixel" ? "bg-amber-500 text-black font-bold" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    👾 像素 8-Bit
+                  </button>
                 </div>
+              </div>
+            </div>
 
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <p className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                      NT$ {formatCurrency(summary.netWorth)}
-                    </p>
-                    <div className="mt-3 inline-flex items-center rounded-full border border-slate-200/80 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">
-                      <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      USD/TWD {usdToTwdRate ? usdToTwdRate.toFixed(2) : "讀取中"}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSyncPrices}
-                      disabled={syncing}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200/80 bg-slate-50 text-slate-600 shadow-sm shadow-slate-900/5 transition hover:bg-slate-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label="同步最新報價"
-                      title="同步最新報價"
-                    >
-                      <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-                    </button>
-                    <div className="flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => handleThemeChange("original")}
-                        className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
-                          currentTheme === "original"
-                            ? "bg-slate-900 text-white"
-                            : "text-slate-600 hover:bg-slate-100"
-                        }`}
-                      >
-                        ✨ 現代原版
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleThemeChange("pixel")}
-                        className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
-                          currentTheme === "pixel"
-                            ? "bg-amber-500 font-bold text-black"
-                            : "text-slate-600 hover:bg-slate-100"
-                        }`}
-                      >
-                        👾 像素 8-Bit
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowForm(true)}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200/80 bg-slate-50 text-slate-600 shadow-sm shadow-slate-900/5 transition hover:bg-slate-100 active:scale-95"
-                      aria-label="新增項目"
-                      title="新增項目"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
+            <div className="w-full max-w-xl rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-5 shadow-inner">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-500">目前淨資產</p>
+                  <p className="mt-2 text-4xl font-semibold tracking-tight text-slate-950">
+                    NT$ {formatCurrency(summary.netWorth)}
+                  </p>
+                </div>
+                <div className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700">
+                  {trendDelta === 0 ? "穩定" : formatPercent(trendDelta)}
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-5">
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                   <p className="text-sm text-slate-500">總資產</p>
-                  <p className="mt-3 text-2xl font-semibold text-slate-950">
+                  <p className="mt-2 text-xl font-semibold text-slate-900">
                     NT$ {formatCurrency(summary.totalAssets)}
                   </p>
                 </div>
-                <div className="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-5">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                   <p className="text-sm text-slate-500">總負債</p>
-                  <p className="mt-3 text-2xl font-semibold text-slate-950">
+                  <p className="mt-2 text-xl font-semibold text-slate-900">
                     NT$ {formatCurrency(summary.totalLiabilities)}
                   </p>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div className="rounded-[2rem] border border-slate-200/70 bg-white/90 p-6 shadow-[0_22px_50px_-24px_rgba(15,23,42,0.22)]">
-            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-500">資產趨勢</p>
-                <p className="text-xs text-slate-400">以台北時間 23:59 為計算截止</p>
+              <div className="mt-5">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-slate-500">資產趨勢</p>
+                  <div className="flex rounded-full border border-slate-200 bg-white p-1">
+                    {(["day", "month", "quarter", "year"] as const).map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setTimeframe(item)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${timeframe === item ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                      >
+                        {item === "day" ? "日" : item === "month" ? "月" : item === "quarter" ? "季" : "年"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="h-[300px]">
+                  {mounted ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartData}>
+                        <defs>
+                          <linearGradient id="netWorthGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#10b981" stopOpacity={0.28} />
+                            <stop offset="100%" stopColor="#10b981" stopOpacity={0.04} />
+                          </linearGradient>
+                        </defs>
+                        <XAxis
+                          dataKey="label"
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: "#64748b", fontSize: 12 }}
+                        />
+                        <YAxis
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: "#64748b", fontSize: 12 }}
+                          width={50}
+                        />
+                        <Tooltip formatter={(value) => [`NT$ ${formatCurrency(Number(value ?? 0))}`, "淨資產"]} />
+                        <Area 
+                          type={currentTheme === "pixel" ? "step" : "monotone"} 
+                          dataKey="netWorth" 
+                          stroke={currentTheme === "pixel" ? "#000000" : "#10b981"} 
+                          strokeWidth={currentTheme === "pixel" ? 3 : 2.5} 
+                          fill={currentTheme === "pixel" ? "#a7f3d0" : "url(#netWorthGradient)"} 
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[300px]" />
+                  )}
+                </div>
               </div>
-              <div className="flex flex-wrap rounded-full border border-slate-200 bg-white p-1">
-                {(["day", "month", "quarter", "year"] as const).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setTimeframe(item)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${timeframe === item ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
-                  >
-                    {item === "day" ? "日" : item === "month" ? "月" : item === "quarter" ? "季" : "年"}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="h-[360px] min-h-[18rem]">
-              {mounted ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="netWorthGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.32} />
-                        <stop offset="100%" stopColor="#10b981" stopOpacity={0.06} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="label"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: "#64748b", fontSize: 12 }}
-                      interval={0}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: "#64748b", fontSize: 12 }}
-                      width={55}
-                    />
-                    <Tooltip formatter={(value) => [`NT$ ${formatCurrency(Number(value ?? 0))}`, "淨資產"]} />
-                    <Area
-                      type={currentTheme === "pixel" ? "step" : "monotone"}
-                      dataKey="netWorth"
-                      stroke={currentTheme === "pixel" ? "#000000" : "#10b981"}
-                      strokeWidth={currentTheme === "pixel" ? 3 : 2.5}
-                      fill={currentTheme === "pixel" ? "#a7f3d0" : "url(#netWorthGradient)"}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[360px]" />
-              )}
             </div>
           </div>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1.3fr_0.85fr]">
+        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-6">
             {renderedAccountGroups.length === 0 ? (
               <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-500 shadow-sm">
@@ -928,91 +754,52 @@ export default function HomePage() {
                   return null;
                 }
 
-                const isCollapsed = collapsedGroups[group.title] ?? (group.cards.length > 2 || ["【固定資產】", "【負債與應付款】"].includes(group.title));
-                const groupTotal = group.cards.reduce((sum, card) => sum + Number(card.currentValue ?? 0), 0);
-
                 return (
                   <Card key={group.title} className="border-slate-200/80 bg-white/80 shadow-sm">
-                    <CardHeader className="flex items-start justify-between gap-4 pb-3">
-                      <div className="min-w-0">
-                        <div className={`h-1.5 w-16 rounded-full bg-gradient-to-r ${group.accent}`} />
-                        <CardTitle className="mt-3 text-lg">{group.title}</CardTitle>
-                        <CardDescription>
-                          {group.cards.length} 項 · NT$ {formatCurrency(groupTotal)}
-                        </CardDescription>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(group.title)}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
-                        aria-label={isCollapsed ? "展開項目" : "收起項目"}
-                      >
-                        {isCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-                      </button>
+                    <CardHeader className="pb-3">
+                      <div className={`h-1.5 w-16 rounded-full bg-gradient-to-r ${group.accent}`} />
+                      <CardTitle className="mt-3 text-lg">{group.title}</CardTitle>
+                      <CardDescription>{group.cards.length} 個卡片</CardDescription>
                     </CardHeader>
-
-                    {!isCollapsed ? (
-                      <CardContent className="space-y-3">
-                        {group.cards.map((card) => (
-                          <div
-                            key={card.id}
-                            className="group rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-3 transition hover:border-slate-300 hover:bg-white hover:shadow-sm"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex min-w-0 flex-row flex-wrap items-center gap-2">
-                                  <p className="min-w-0 truncate text-sm font-medium text-slate-950">{card.title}</p>
-                                  {card.subtitle ? (
-                                    <span className="inline-flex shrink-0 whitespace-nowrap rounded-md bg-slate-200/60 px-1.5 py-0.5 text-[10px] font-medium leading-none text-slate-600">
-                                      {card.subtitle}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                {card.accountCount > 1 ? (
-                                  <p className="mt-1 text-[11px] text-slate-400">合併 {card.accountCount} 筆</p>
-                                ) : null}
-                              </div>
-
-                              <div className="flex shrink-0 items-center justify-end gap-2">
-                                <div className="min-w-[6.5rem] text-right">
-                                  <p className="text-sm font-semibold text-slate-950">
-                                    NT$ {formatCurrency(Number(card.currentValue ?? 0))}
-                                  </p>
-                                  <p className="mt-1 text-xs text-slate-400">
-                                    {symbolRequiredCategories.includes(card.category)
-                                      ? card.account.isApiConnected
-                                        ? "API 同步"
-                                        : `${formatCurrency(card.quantity)} 股`
-                                      : `餘額 ${formatCurrency(card.quantity)}`}
-                                  </p>
-                                </div>
-
-                                <div className="flex items-center gap-1 opacity-60 transition-opacity duration-200 md:opacity-0 md:group-hover:opacity-100">
-                                  <button
-                                    type="button"
-                                    onClick={() => startEdit(card.account)}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 active:scale-95"
-                                    aria-label={`編輯 ${card.title}`}
-                                    title="編輯"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleDelete(card.account.id)}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 active:scale-95"
-                                    aria-label={`刪除 ${card.title}`}
-                                    title="刪除"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                </div>
+                    <CardContent className="space-y-3">
+                      {group.cards.map((card) => (
+                        <div key={card.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-slate-900">{card.title}</p>
+                              <p className="mt-1 text-xs text-slate-500">{card.subtitle}</p>
+                              {card.accountCount > 1 ? (
+                                <p className="mt-1 text-[11px] text-slate-400">已合併 {card.accountCount} 筆相同標的與帳戶</p>
+                              ) : null}
+                              {symbolRequiredCategories.includes(card.category) ? (
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                  持有 {formatCurrency(card.quantity)} 股
+                                </p>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                  餘額 {formatCurrency(card.quantity)}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <p className="text-sm font-semibold text-slate-900">
+                                NT$ {formatCurrency(Number(card.currentValue ?? 0))}
+                              </p>
+                              <div className="flex items-center gap-1">
+                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => startEdit(card.account)}>
+                                  <Pencil className="mr-1 h-3.5 w-3.5" />
+                                  編輯
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-rose-600" onClick={() => void handleDelete(card.account.id)}>
+                                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                  刪除
+                                </Button>
                               </div>
                             </div>
                           </div>
-                        ))}
-                      </CardContent>
-                    ) : null}
+                        </div>
+                      ))}
+                    </CardContent>
                   </Card>
                 );
               })}
@@ -1020,6 +807,247 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-6">
+            <Card className="border-slate-200/80 bg-white/80 shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>{editingAccountId ? "編輯資產 / 負債" : "新增資產 / 負債"}</CardTitle>
+                  <CardDescription>{editingAccountId ? "調整名稱、金額或股數後儲存修改。" : "建立帳戶、設定扣款與來源帳戶。"}</CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setShowForm((value) => !value)}>
+                  {showForm ? "收合" : "展開"}
+                </Button>
+              </CardHeader>
+              {showForm ? (
+                <div ref={formSectionRef}>
+                  <CardContent>
+                    <Form onSubmit={handleSubmit}>
+                    <FormItem>
+                      <FormLabel htmlFor="name">名稱</FormLabel>
+                      <FormControl>
+                        <Input
+                          id="name"
+                          value={formData.name}
+                          onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+                          placeholder="例如：現金帳戶、台積電、BTC"
+                        />
+                      </FormControl>
+                    </FormItem>
+
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <FormItem>
+                        <FormLabel htmlFor="type">類型</FormLabel>
+                        <FormControl>
+                          <select
+                            id="type"
+                            value={formData.type}
+                            onChange={(event) => setFormData({ ...formData, type: event.target.value })}
+                            className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
+                          >
+                            {typeOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </FormControl>
+                      </FormItem>
+
+                      <FormItem>
+                        <FormLabel htmlFor="category">類別</FormLabel>
+                        <FormControl>
+                          <select
+                            id="category"
+                            value={formData.category}
+                            onChange={(event) => {
+                              const nextCategory = event.target.value;
+                              const nextIsApiConnected = nextCategory === "CRYPTO" ? formData.isApiConnected : false;
+                              setFormData({
+                                ...formData,
+                                category: nextCategory,
+                                symbol: symbolRequiredCategories.includes(nextCategory) ? formData.symbol : "",
+                                isApiConnected: nextIsApiConnected,
+                                apiSource: nextCategory === "CRYPTO" ? formData.apiSource : "BITFINEX",
+                                apiKey: nextCategory === "CRYPTO" ? formData.apiKey : "",
+                                apiSecret: nextCategory === "CRYPTO" ? formData.apiSecret : "",
+                              });
+                            }}
+                            className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
+                          >
+                            {categoryOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </FormControl>
+                      </FormItem>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <FormItem>
+                        <FormLabel htmlFor="currency">幣別</FormLabel>
+                        <FormControl>
+                          <select
+                            id="currency"
+                            value={formData.currency}
+                            onChange={(event) => setFormData({ ...formData, currency: event.target.value })}
+                            className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
+                          >
+                            {currencyOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </FormControl>
+                      </FormItem>
+
+                      {!showApiFields ? (
+                        <FormItem>
+                          <FormLabel htmlFor="quantity">
+                            {usesAmountInput ? "總金額" : "持有股數"}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              id="quantity"
+                              type="number"
+                              step="any"
+                              value={formData.quantity}
+                              onChange={(event) => setFormData({ ...formData, quantity: event.target.value })}
+                              placeholder={usesAmountInput ? "例如：10000、5000" : "例如：100、0.5"}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      ) : null}
+                    </div>
+
+                    {formData.category === "CRYPTO" ? (
+                      <FormItem className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-start gap-3">
+                          <input
+                            id="isApiConnected"
+                            type="checkbox"
+                            checked={formData.isApiConnected}
+                            onChange={(event) => setFormData({ ...formData, isApiConnected: event.target.checked })}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <div>
+                            <FormLabel htmlFor="isApiConnected">🔌 串接交易所 API (自動同步餘額)</FormLabel>
+                            <FormDescription>啟用後將由交易所 API 取得總資產估值，並自動更新台幣金額。</FormDescription>
+                          </div>
+                        </div>
+                      </FormItem>
+                    ) : null}
+
+                    {showApiFields ? (
+                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        <FormItem>
+                          <FormLabel htmlFor="apiSource">交易所</FormLabel>
+                          <FormControl>
+                            <select
+                              id="apiSource"
+                              value={formData.apiSource}
+                              onChange={(event) => setFormData({ ...formData, apiSource: event.target.value })}
+                              className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
+                            >
+                              <option value="BITFINEX">BITFINEX</option>
+                            </select>
+                          </FormControl>
+                        </FormItem>
+
+                        <FormItem>
+                          <FormLabel htmlFor="apiKey">API Key</FormLabel>
+                          <FormControl>
+                            <Input
+                              id="apiKey"
+                              value={formData.apiKey}
+                              onChange={(event) => setFormData({ ...formData, apiKey: event.target.value })}
+                              placeholder="請輸入 Bitfinex API Key"
+                            />
+                          </FormControl>
+                        </FormItem>
+
+                        <FormItem>
+                          <FormLabel htmlFor="apiSecret">API Secret</FormLabel>
+                          <FormControl>
+                            <Input
+                              id="apiSecret"
+                              type="password"
+                              value={formData.apiSecret}
+                              onChange={(event) => setFormData({ ...formData, apiSecret: event.target.value })}
+                              placeholder="請輸入 Bitfinex API Secret"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      </div>
+                    ) : null}
+
+                    {requiresSymbol ? (
+                      <FormItem className="mt-4">
+                        <FormLabel htmlFor="symbol">代號 (Symbol)</FormLabel>
+                        <FormControl>
+                          <Input
+                            id="symbol"
+                            value={formData.symbol}
+                            onChange={(event) => setFormData({ ...formData, symbol: event.target.value })}
+                            placeholder="例如：2330.TW、AAPL、BTC"
+                          />
+                        </FormControl>
+                        <FormDescription>股票或虛擬貨幣類別需要填寫代號。</FormDescription>
+                      </FormItem>
+                    ) : null}
+
+                    {showDeductionFields ? (
+                      <div className="mt-4 grid gap-4">
+                        <FormItem>
+                          <FormLabel htmlFor="monthlyDeductionAmount">每月扣款金額</FormLabel>
+                          <FormControl>
+                            <Input
+                              id="monthlyDeductionAmount"
+                              type="number"
+                              step="any"
+                              value={formData.monthlyDeductionAmount}
+                              onChange={(event) => setFormData({ ...formData, monthlyDeductionAmount: event.target.value })}
+                              placeholder="例如：5000"
+                            />
+                          </FormControl>
+                        </FormItem>
+                        <FormItem>
+                          <FormLabel htmlFor="deductionDate">每月扣款日 (1-31)</FormLabel>
+                          <FormControl>
+                            <Input
+                              id="deductionDate"
+                              type="number"
+                              min="1"
+                              max="31"
+                              value={formData.deductionDate}
+                              onChange={(event) => setFormData({ ...formData, deductionDate: event.target.value })}
+                              placeholder="例如：15"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      </div>
+                    ) : null}
+
+                    {error ? <FormMessage className="mt-4">{error}</FormMessage> : null}
+                    {message ? <p className="mt-4 text-sm text-emerald-600">{message}</p> : null}
+
+                      <CardFooter className="mt-4 flex justify-end gap-2 border-t border-slate-200 px-0 pt-4">
+                        {editingAccountId ? (
+                          <Button type="button" variant="outline" onClick={resetForm}>
+                            取消編輯
+                          </Button>
+                        ) : null}
+                        <Button type="submit" disabled={loading}>
+                          {loading ? "儲存中..." : editingAccountId ? "儲存修改" : "新增帳戶"}
+                        </Button>
+                      </CardFooter>
+                    </Form>
+                  </CardContent>
+                </div>
+              ) : null}
+            </Card>
+
             <Card className="border-slate-200/80 bg-white/80 shadow-sm">
               <CardHeader>
                 <CardTitle>最近動態</CardTitle>
@@ -1054,255 +1082,5 @@ export default function HomePage() {
         </section>
       </div>
     </main>
-
-    {showForm ? (
-      <div className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4 py-6" onClick={() => setShowForm(false)}>
-        <div className="relative w-full max-w-2xl overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white/95 p-6 shadow-2xl shadow-slate-900/20" onClick={(event) => event.stopPropagation()}>
-          <button
-            type="button"
-            onClick={() => {
-              resetForm();
-              setShowForm(false);
-            }}
-            className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-slate-700 transition hover:bg-slate-200"
-            aria-label="關閉表單"
-          >
-            ✕
-          </button>
-
-          <div className="mb-6 space-y-2">
-            <p className="text-sm font-medium uppercase tracking-[0.3em] text-emerald-600">新增項目</p>
-            <h2 className="text-2xl font-semibold text-slate-950">{editingAccountId ? "編輯資產 / 負債" : "新增資產 / 負債"}</h2>
-            <p className="text-sm text-slate-600">調整或新增帳戶資料，完成後表單將自動關閉。</p>
-          </div>
-
-          <Form onSubmit={handleSubmit} className="space-y-4">
-            <FormItem>
-              <FormLabel htmlFor="name">名稱</FormLabel>
-              <FormControl>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                  placeholder="例如：現金帳戶、台積電、BTC"
-                />
-              </FormControl>
-            </FormItem>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <FormItem>
-                <FormLabel htmlFor="type">類型</FormLabel>
-                <FormControl>
-                  <select
-                    id="type"
-                    value={formData.type}
-                    onChange={(event) => setFormData({ ...formData, type: event.target.value })}
-                    className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
-                  >
-                    {typeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </FormControl>
-              </FormItem>
-
-              <FormItem>
-                <FormLabel htmlFor="category">類別</FormLabel>
-                <FormControl>
-                  <select
-                    id="category"
-                    value={formData.category}
-                    onChange={(event) => {
-                      const nextCategory = event.target.value;
-                      const nextIsApiConnected = nextCategory === "CRYPTO" ? formData.isApiConnected : false;
-                      setFormData({
-                        ...formData,
-                        category: nextCategory,
-                        symbol: symbolRequiredCategories.includes(nextCategory) ? formData.symbol : "",
-                        isApiConnected: nextIsApiConnected,
-                        apiSource: nextCategory === "CRYPTO" ? formData.apiSource : "BITFINEX",
-                        apiKey: nextCategory === "CRYPTO" ? formData.apiKey : "",
-                        apiSecret: nextCategory === "CRYPTO" ? formData.apiSecret : "",
-                      });
-                    }}
-                    className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
-                  >
-                    {categoryOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </FormControl>
-              </FormItem>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <FormItem>
-                <FormLabel htmlFor="currency">幣別</FormLabel>
-                <FormControl>
-                  <select
-                    id="currency"
-                    value={formData.currency}
-                    onChange={(event) => setFormData({ ...formData, currency: event.target.value })}
-                    className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
-                  >
-                    {currencyOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </FormControl>
-              </FormItem>
-
-              {!showApiFields ? (
-                <FormItem>
-                  <FormLabel htmlFor="quantity">
-                    {usesAmountInput ? "總金額" : "持有股數"}
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      id="quantity"
-                      type="number"
-                      step="any"
-                      value={formData.quantity}
-                      onChange={(event) => setFormData({ ...formData, quantity: event.target.value })}
-                      placeholder={usesAmountInput ? "例如：10000、5000" : "例如：100、0.5"}
-                    />
-                  </FormControl>
-                </FormItem>
-              ) : null}
-            </div>
-
-            {formData.category === "CRYPTO" ? (
-              <FormItem className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-start gap-3">
-                  <input
-                    id="isApiConnected"
-                    type="checkbox"
-                    checked={formData.isApiConnected}
-                    onChange={(event) => setFormData({ ...formData, isApiConnected: event.target.checked })}
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div>
-                    <FormLabel htmlFor="isApiConnected">🔌 串接交易所 API (自動同步餘額)</FormLabel>
-                    <FormDescription>啟用後將由交易所 API 取得總資產估值，並自動更新台幣金額。</FormDescription>
-                  </div>
-                </div>
-              </FormItem>
-            ) : null}
-
-            {showApiFields ? (
-              <div className="grid gap-4 lg:grid-cols-2">
-                <FormItem>
-                  <FormLabel htmlFor="apiSource">交易所</FormLabel>
-                  <FormControl>
-                    <select
-                      id="apiSource"
-                      value={formData.apiSource}
-                      onChange={(event) => setFormData({ ...formData, apiSource: event.target.value })}
-                      className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
-                    >
-                      <option value="BITFINEX">BITFINEX</option>
-                    </select>
-                  </FormControl>
-                </FormItem>
-
-                <FormItem>
-                  <FormLabel htmlFor="apiKey">API Key</FormLabel>
-                  <FormControl>
-                    <Input
-                      id="apiKey"
-                      value={formData.apiKey}
-                      onChange={(event) => setFormData({ ...formData, apiKey: event.target.value })}
-                      placeholder="請輸入 Bitfinex API Key"
-                    />
-                  </FormControl>
-                </FormItem>
-
-                <FormItem>
-                  <FormLabel htmlFor="apiSecret">API Secret</FormLabel>
-                  <FormControl>
-                    <Input
-                      id="apiSecret"
-                      type="password"
-                      value={formData.apiSecret}
-                      onChange={(event) => setFormData({ ...formData, apiSecret: event.target.value })}
-                      placeholder="請輸入 Bitfinex API Secret"
-                    />
-                  </FormControl>
-                </FormItem>
-              </div>
-            ) : null}
-
-            {requiresSymbol ? (
-              <FormItem>
-                <FormLabel htmlFor="symbol">代號 (Symbol)</FormLabel>
-                <FormControl>
-                  <Input
-                    id="symbol"
-                    value={formData.symbol}
-                    onChange={(event) => setFormData({ ...formData, symbol: event.target.value })}
-                    placeholder="例如：2330.TW、AAPL、BTC"
-                  />
-                </FormControl>
-                <FormDescription>股票或虛擬貨幣類別需要填寫代號。</FormDescription>
-              </FormItem>
-            ) : null}
-
-            {showDeductionFields ? (
-              <div className="grid gap-4">
-                <FormItem>
-                  <FormLabel htmlFor="monthlyDeductionAmount">每月扣款金額</FormLabel>
-                  <FormControl>
-                    <Input
-                      id="monthlyDeductionAmount"
-                      type="number"
-                      step="any"
-                      value={formData.monthlyDeductionAmount}
-                      onChange={(event) => setFormData({ ...formData, monthlyDeductionAmount: event.target.value })}
-                      placeholder="例如：5000"
-                    />
-                  </FormControl>
-                </FormItem>
-                <FormItem>
-                  <FormLabel htmlFor="deductionDate">每月扣款日 (1-31)</FormLabel>
-                  <FormControl>
-                    <Input
-                      id="deductionDate"
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={formData.deductionDate}
-                      onChange={(event) => setFormData({ ...formData, deductionDate: event.target.value })}
-                      placeholder="例如：15"
-                    />
-                  </FormControl>
-                </FormItem>
-              </div>
-            ) : null}
-
-            {error ? <FormMessage>{error}</FormMessage> : null}
-            {message ? <p className="text-sm text-emerald-600">{message}</p> : null}
-
-            <div className="flex flex-wrap justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={() => {
-                resetForm();
-                setShowForm(false);
-              }}>
-                取消
-              </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? "儲存中..." : editingAccountId ? "儲存修改" : "新增帳戶"}
-              </Button>
-            </div>
-          </Form>
-        </div>
-      </div>
-    ) : null}
-  </>
-);
+  );
 }
