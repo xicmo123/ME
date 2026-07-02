@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  experimental: {
-    allowedDevOrigins: ["104.199.235.223"],
-  },
+  // 保持空空如也，什麼都不用設定！
 };
 
 export default nextConfig;
