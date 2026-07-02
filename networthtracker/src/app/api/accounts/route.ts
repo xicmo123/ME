@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { randomUUID } from "crypto"
 import { NextResponse } from "next/server"
 import yahooFinance from "yahoo-finance2"
