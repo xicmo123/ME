@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Form,
   FormItem,
   FormLabel,
   FormControl,
@@ -176,9 +177,9 @@ export default function HomePage() {
     })();
   }, []);
 
-  const handleThemeChange = (theme: "original" | "pixel") => {
-    setCurrentTheme(theme);
-    localStorage.setItem("networth-tracker-theme", theme);
+  const handleSaveThemeDefault = () => {
+    localStorage.setItem("networth-tracker-theme", currentTheme);
+    alert(`💾 已成功將「${currentTheme === "pixel" ? "像素 8-Bit" : "現代原版"}」風格儲存為預設值！次頁面重開將以此風格載入。`);
   };
 
   async function fetchAccounts() {
@@ -630,11 +631,10 @@ export default function HomePage() {
                   {showForm ? "收合新增表單" : "展開新增表單"}
                 </Button>
 
-                {/* 主題風格持久化切換選單 */}
                 <div className="flex rounded-full border border-slate-200 bg-white p-1 shadow-sm items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => handleThemeChange("original")}
+                    onClick={() => setCurrentTheme("original")}
                     className={`rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
                       currentTheme === "original" ? "bg-slate-900 text-white font-bold" : "text-slate-600 hover:bg-slate-100"
                     }`}
@@ -643,12 +643,20 @@ export default function HomePage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleThemeChange("pixel")}
+                    onClick={() => setCurrentTheme("pixel")}
                     className={`rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
                       currentTheme === "pixel" ? "bg-amber-500 text-black font-bold" : "text-slate-600 hover:bg-slate-100"
                     }`}
                   >
                     👾 像素 8-Bit
+                  </button>
+                  <div className="h-4 w-[1px] bg-slate-200 mx-1" />
+                  <button
+                    type="button"
+                    onClick={handleSaveThemeDefault}
+                    className="rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-1 text-xs font-medium transition cursor-pointer"
+                  >
+                    💾 儲存為預設
                   </button>
                 </div>
               </div>
@@ -819,218 +827,217 @@ export default function HomePage() {
               {showForm ? (
                 <div ref={formSectionRef}>
                   <CardContent>
-                    {/* 使用標準 HTML 表單標籤，解決 Shadcn Form Context 崩潰與按鈕失效問題 */}
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                    <FormItem>
-                      <FormLabel htmlFor="name">名稱</FormLabel>
-                      <FormControl>
-                        <Input
-                          id="name"
-                          value={formData.name}
-                          onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                          placeholder="例如：現金帳戶、台積電、BTC"
-                        />
-                      </FormControl>
-                    </FormItem>
-
-                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <Form onSubmit={handleSubmit}>
                       <FormItem>
-                        <FormLabel htmlFor="type">類型</FormLabel>
+                        <FormLabel htmlFor="name">名稱</FormLabel>
                         <FormControl>
-                          <select
-                            id="type"
-                            value={formData.type}
-                            onChange={(event) => setFormData({ ...formData, type: event.target.value })}
-                            className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
-                          >
-                            {typeOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </FormControl>
-                      </FormItem>
-
-                      <FormItem>
-                        <FormLabel htmlFor="category">類別</FormLabel>
-                        <FormControl>
-                          <select
-                            id="category"
-                            value={formData.category}
-                            onChange={(event) => {
-                              const nextCategory = event.target.value;
-                              const nextIsApiConnected = nextCategory === "CRYPTO" ? formData.isApiConnected : false;
-                              setFormData({
-                                ...formData,
-                                category: nextCategory,
-                                symbol: symbolRequiredCategories.includes(nextCategory) ? formData.symbol : "",
-                                isApiConnected: nextIsApiConnected,
-                                apiSource: nextCategory === "CRYPTO" ? formData.apiSource : "BITFINEX",
-                                apiKey: nextCategory === "CRYPTO" ? formData.apiKey : "",
-                                apiSecret: nextCategory === "CRYPTO" ? formData.apiSecret : "",
-                              });
-                            }}
-                            className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
-                          >
-                            {categoryOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </FormControl>
-                      </FormItem>
-                    </div>
-
-                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                      <FormItem>
-                        <FormLabel htmlFor="currency">幣別</FormLabel>
-                        <FormControl>
-                          <select
-                            id="currency"
-                            value={formData.currency}
-                            onChange={(event) => setFormData({ ...formData, currency: event.target.value })}
-                            className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
-                          >
-                            {currencyOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </FormControl>
-                      </FormItem>
-
-                      {!showApiFields ? (
-                        <FormItem>
-                          <FormLabel htmlFor="quantity">
-                            {usesAmountInput ? "總金額" : "持有股數"}
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              id="quantity"
-                              type="number"
-                              step="any"
-                              value={formData.quantity}
-                              onChange={(event) => setFormData({ ...formData, quantity: event.target.value })}
-                              placeholder={usesAmountInput ? "例如：10000、5000" : "例如：100、0.5"}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      ) : null}
-                    </div>
-
-                    {formData.category === "CRYPTO" ? (
-                      <FormItem className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="flex items-start gap-3">
-                          <input
-                            id="isApiConnected"
-                            type="checkbox"
-                            checked={formData.isApiConnected}
-                            onChange={(event) => setFormData({ ...formData, isApiConnected: event.target.checked })}
-                            className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          <Input
+                            id="name"
+                            value={formData.name}
+                            onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+                            placeholder="例如：現金帳戶、台積電、BTC"
                           />
-                          <div>
-                            <FormLabel htmlFor="isApiConnected">🔌 串接交易所 API (自動同步餘額)</FormLabel>
-                            <FormDescription>啟用後將由交易所 API 取得總資產估值，並自動更新台幣金額。</FormDescription>
-                          </div>
-                        </div>
+                        </FormControl>
                       </FormItem>
-                    ) : null}
 
-                    {showApiFields ? (
                       <div className="mt-4 grid gap-4 lg:grid-cols-2">
                         <FormItem>
-                          <FormLabel htmlFor="apiSource">交易所</FormLabel>
+                          <FormLabel htmlFor="type">類型</FormLabel>
                           <FormControl>
                             <select
-                              id="apiSource"
-                              value={formData.apiSource}
-                              onChange={(event) => setFormData({ ...formData, apiSource: event.target.value })}
+                              id="type"
+                              value={formData.type}
+                              onChange={(event) => setFormData({ ...formData, type: event.target.value })}
                               className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
                             >
-                              <option value="BITFINEX">BITFINEX</option>
+                              {typeOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
                             </select>
                           </FormControl>
                         </FormItem>
 
                         <FormItem>
-                          <FormLabel htmlFor="apiKey">API Key</FormLabel>
+                          <FormLabel htmlFor="category">類別</FormLabel>
                           <FormControl>
-                            <Input
-                              id="apiKey"
-                              value={formData.apiKey}
-                              onChange={(event) => setFormData({ ...formData, apiKey: event.target.value })}
-                              placeholder="請輸入 Bitfinex API Key"
-                            />
-                          </FormControl>
-                        </FormItem>
-
-                        <FormItem>
-                          <FormLabel htmlFor="apiSecret">API Secret</FormLabel>
-                          <FormControl>
-                            <Input
-                              id="apiSecret"
-                              type="password"
-                              value={formData.apiSecret}
-                              onChange={(event) => setFormData({ ...formData, apiSecret: event.target.value })}
-                              placeholder="請輸入 Bitfinex API Secret"
-                            />
-                          </FormControl>
-                        </FormItem>
-                      </div>
-                    ) : null}
-
-                    {requiresSymbol ? (
-                      <FormItem className="mt-4">
-                        <FormLabel htmlFor="symbol">代號 (Symbol)</FormLabel>
-                        <FormControl>
-                          <Input
-                            id="symbol"
-                            value={formData.symbol}
-                            onChange={(event) => setFormData({ ...formData, symbol: event.target.value })}
-                            placeholder="例如：2330.TW、AAPL、BTC"
-                          />
-                        </FormControl>
-                        <FormDescription>股票或虛擬貨幣類別需要填寫代號。</FormDescription>
-                      </FormItem>
-                    ) : null}
-
-                    {showDeductionFields ? (
-                      <div className="mt-4 grid gap-4">
-                        <FormItem>
-                          <FormLabel htmlFor="monthlyDeductionAmount">每月扣款金額</FormLabel>
-                          <FormControl>
-                            <Input
-                              id="monthlyDeductionAmount"
-                              type="number"
-                              step="any"
-                              value={formData.monthlyDeductionAmount}
-                              onChange={(event) => setFormData({ ...formData, monthlyDeductionAmount: event.target.value })}
-                              placeholder="例如：5000"
-                            />
-                          </FormControl>
-                        </FormItem>
-                        <FormItem>
-                          <FormLabel htmlFor="deductionDate">每月扣款日 (1-31)</FormLabel>
-                          <FormControl>
-                            <Input
-                              id="deductionDate"
-                              type="number"
-                              min="1"
-                              max="31"
-                              value={formData.deductionDate}
-                              onChange={(event) => setFormData({ ...formData, deductionDate: event.target.value })}
-                              placeholder="例如：15"
-                            />
+                            <select
+                              id="category"
+                              value={formData.category}
+                              onChange={(event) => {
+                                const nextCategory = event.target.value;
+                                const nextIsApiConnected = nextCategory === "CRYPTO" ? formData.isApiConnected : false;
+                                setFormData({
+                                  ...formData,
+                                  category: nextCategory,
+                                  symbol: symbolRequiredCategories.includes(nextCategory) ? formData.symbol : "",
+                                  isApiConnected: nextIsApiConnected,
+                                  apiSource: nextCategory === "CRYPTO" ? formData.apiSource : "BITFINEX",
+                                  apiKey: nextCategory === "CRYPTO" ? formData.apiKey : "",
+                                  apiSecret: nextCategory === "CRYPTO" ? formData.apiSecret : "",
+                                });
+                              }}
+                              className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
+                            >
+                              {categoryOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
                           </FormControl>
                         </FormItem>
                       </div>
-                    ) : null}
 
-                    {error ? <FormMessage className="mt-4">{error}</FormMessage> : null}
-                    {message ? <p className="mt-4 text-sm text-emerald-600">{message}</p> : null}
+                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        <FormItem>
+                          <FormLabel htmlFor="currency">幣別</FormLabel>
+                          <FormControl>
+                            <select
+                              id="currency"
+                              value={formData.currency}
+                              onChange={(event) => setFormData({ ...formData, currency: event.target.value })}
+                              className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
+                            >
+                              {currencyOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </FormControl>
+                        </FormItem>
+
+                        {!showApiFields ? (
+                          <FormItem>
+                            <FormLabel htmlFor="quantity">
+                              {usesAmountInput ? "總金額" : "持有股數"}
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                id="quantity"
+                                type="number"
+                                step="any"
+                                value={formData.quantity}
+                                onChange={(event) => setFormData({ ...formData, quantity: event.target.value })}
+                                placeholder={usesAmountInput ? "例如：10000、5000" : "例如：100、0.5"}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        ) : null}
+                      </div>
+
+                      {formData.category === "CRYPTO" ? (
+                        <FormItem className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="flex items-start gap-3">
+                            <input
+                              id="isApiConnected"
+                              type="checkbox"
+                              checked={formData.isApiConnected}
+                              onChange={(event) => setFormData({ ...formData, isApiConnected: event.target.checked })}
+                              className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <div>
+                              <FormLabel htmlFor="isApiConnected">🔌 串接交易所 API (自動同步餘額)</FormLabel>
+                              <FormDescription>啟用後將由交易所 API 取得總資產估值，並自動更新台幣金額。</FormDescription>
+                            </div>
+                          </div>
+                        </FormItem>
+                      ) : null}
+
+                      {showApiFields ? (
+                        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                          <FormItem>
+                            <FormLabel htmlFor="apiSource">交易所</FormLabel>
+                            <FormControl>
+                              <select
+                                id="apiSource"
+                                value={formData.apiSource}
+                                onChange={(event) => setFormData({ ...formData, apiSource: event.target.value })}
+                                className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-slate-600 focus:ring-2 focus:ring-slate-200"
+                              >
+                                <option value="BITFINEX">BITFINEX</option>
+                              </select>
+                            </FormControl>
+                          </FormItem>
+
+                          <FormItem>
+                            <FormLabel htmlFor="apiKey">API Key</FormLabel>
+                            <FormControl>
+                              <Input
+                                id="apiKey"
+                                value={formData.apiKey}
+                                onChange={(event) => setFormData({ ...formData, apiKey: event.target.value })}
+                                placeholder="請輸入 Bitfinex API Key"
+                              />
+                            </FormControl>
+                          </FormItem>
+
+                          <FormItem>
+                            <FormLabel htmlFor="apiSecret">API Secret</FormLabel>
+                            <FormControl>
+                              <Input
+                                id="apiSecret"
+                                type="password"
+                                value={formData.apiSecret}
+                                onChange={(event) => setFormData({ ...formData, apiSecret: event.target.value })}
+                                placeholder="請輸入 Bitfinex API Secret"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        </div>
+                      ) : null}
+
+                      {requiresSymbol ? (
+                        <FormItem className="mt-4">
+                          <FormLabel htmlFor="symbol">代號 (Symbol)</FormLabel>
+                          <FormControl>
+                            <Input
+                              id="symbol"
+                              value={formData.symbol}
+                              onChange={(event) => setFormData({ ...formData, symbol: event.target.value })}
+                              placeholder="例如：2330.TW、AAPL、BTC"
+                            />
+                          </FormControl>
+                          <FormDescription>股票或虛擬貨幣類別需要填寫代號。</FormDescription>
+                        </FormItem>
+                      ) : null}
+
+                      {showDeductionFields ? (
+                        <div className="mt-4 grid gap-4">
+                          <FormItem>
+                            <FormLabel htmlFor="monthlyDeductionAmount">每月扣款金額</FormLabel>
+                            <FormControl>
+                              <Input
+                                id="monthlyDeductionAmount"
+                                type="number"
+                                step="any"
+                                value={formData.monthlyDeductionAmount}
+                                onChange={(event) => setFormData({ ...formData, monthlyDeductionAmount: event.target.value })}
+                                placeholder="例如：5000"
+                              />
+                            </FormControl>
+                          </FormItem>
+                          <FormItem>
+                            <FormLabel htmlFor="deductionDate">每月扣款日 (1-31)</FormLabel>
+                            <FormControl>
+                              <Input
+                                id="deductionDate"
+                                type="number"
+                                min="1"
+                                max="31"
+                                value={formData.deductionDate}
+                                onChange={(event) => setFormData({ ...formData, deductionDate: event.target.value })}
+                                placeholder="例如：15"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        </div>
+                      ) : null}
+
+                      {error ? <FormMessage className="mt-4">{error}</FormMessage> : null}
+                      {message ? <p className="mt-4 text-sm text-emerald-600">{message}</p> : null}
 
                       <CardFooter className="mt-4 flex justify-end gap-2 border-t border-slate-200 px-0 pt-4">
                         {editingAccountId ? (
@@ -1042,7 +1049,7 @@ export default function HomePage() {
                           {loading ? "儲存中..." : editingAccountId ? "儲存修改" : "新增帳戶"}
                         </Button>
                       </CardFooter>
-                    </form>
+                    </Form>
                   </CardContent>
                 </div>
               ) : null}
