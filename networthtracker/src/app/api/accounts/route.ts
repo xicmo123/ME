@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto"
 import { NextResponse } from "next/server"
 import yahooFinance from "yahoo-finance2"
 import { PrismaClient } from "@prisma/client"
@@ -174,6 +175,7 @@ export async function POST(request: Request) {
 
   const account = await prisma.account.create({
     data: {
+      id: randomUUID(),
       name: name.trim(),
       type: type as any,
       category: category as any,

@@ -1,9 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-
-/* 載入雙像素字體：Press Start 2P (英文極致復古) + DotGothic16 (日文/中文經典像素風) */
-@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
