@@ -14,7 +14,12 @@ if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma
 const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"]
 const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"]
 
-async function fetchMarketPrice(category: string, symbol: string) {
+async function fetchMarketPrice(category: string, rawSymbol: string) {
+  // 台股自動補 .TW
+  const symbol = category === "TAIWAN_STOCK" && !rawSymbol.toUpperCase().endsWith(".TW")
+    ? rawSymbol.toUpperCase() + ".TW"
+    : rawSymbol;
+
   const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] })
   if (category === "CRYPTO") {
     const normalizedSymbol = symbol.toUpperCase()
@@ -81,7 +86,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (deductionDateValue !== null && (!Number.isInteger(deductionDateValue) || deductionDateValue < 1 || deductionDateValue > 31)) return NextResponse.json({ message: "Deduction date must be between 1 and 31." }, { status: 400 })
   }
 
-  // 🌟 确保只能修改自己的帐户
   const existingAccount = await prisma.account.findFirst({ where: { id, userId } })
   if (!existingAccount) return NextResponse.json({ message: "Account not found." }, { status: 404 })
 
@@ -128,7 +132,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   const { id } = await params
 
-  // 🌟 确保只能删除自己的帐户
   const existingAccount = await prisma.account.findFirst({ where: { id, userId } })
   if (!existingAccount) return NextResponse.json({ message: "Account not found." }, { status: 404 })
 

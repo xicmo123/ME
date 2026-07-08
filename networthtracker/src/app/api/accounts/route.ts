@@ -17,7 +17,10 @@ if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
 const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
 const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"];
 
-async function fetchMarketPrice(category: string, symbol: string) {
+async function fetchMarketPrice(category: string, rawSymbol: string) {
+  const symbol = category === "TAIWAN_STOCK" && !rawSymbol.toUpperCase().endsWith(".TW")
+    ? rawSymbol.toUpperCase() + ".TW"
+    : rawSymbol;
   const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
   if (category === "CRYPTO") {

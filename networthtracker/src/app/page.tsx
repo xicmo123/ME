@@ -312,7 +312,7 @@ export default function HomePage() {
               </>
             )}
           </p>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1">
             <button onClick={() => startEdit(card.account)} className="p-1.5 text-[#6B7066] dark:text-[#8A8F82] hover:text-[#B8933C] transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
             <button onClick={() => handleDelete(card.account.id)} className="p-1.5 text-[#6B7066] dark:text-[#8A8F82] hover:text-[#A24936] transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
           </div>

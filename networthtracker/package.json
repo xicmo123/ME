@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@binance/connector": "^3.6.1",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "ccxt": "^4.5.64",
