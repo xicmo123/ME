@@ -15,11 +15,9 @@ const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"]
 const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"]
 
 async function fetchMarketPrice(category: string, rawSymbol: string) {
-  // 台股自動補 .TW
   const symbol = category === "TAIWAN_STOCK" && !rawSymbol.toUpperCase().endsWith(".TW")
     ? rawSymbol.toUpperCase() + ".TW"
     : rawSymbol;
-
   const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] })
   if (category === "CRYPTO") {
     const normalizedSymbol = symbol.toUpperCase()

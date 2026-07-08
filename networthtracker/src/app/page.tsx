@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Pencil, RefreshCw, Trash2, Plus, X, Lock, Sun, Moon, LogOut, Wallet, Sparkles } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Lock, Sun, Moon, LogOut, Wallet, Sparkles, Eye, EyeOff, LayoutDashboard, PieChart, TrendingUp, Settings, ChevronRight, AlertTriangle } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const typeOptions = [{ value: "ASSET", label: "資產" }, { value: "LIABILITY", label: "負債" }];
@@ -15,49 +15,31 @@ const categoryOptions = [
 ];
 const currencyOptions = [{ value: "TWD", label: "TWD" }, { value: "USD", label: "USD" }];
 const categoryLabelMap: Record<string, string> = categoryOptions.reduce((acc, curr) => ({ ...acc, [curr.value]: curr.label }), {});
-
 const symbolRequiredCategories = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
 const amountInputCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"];
-
 const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "0", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", monthlyDeductionAmount: "", deductionDate: "" };
 
-// ─── 字體與全域樣式（對帳單字體系統） ───────────────────────────────
+type Tab = "overview" | "assets" | "trends" | "settings";
+
 const FontStyles = () => (
   <style jsx global>{`
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Serif+TC:wght@500;600&display=swap');
-    .font-ledger-display { font-family: 'Fraunces', 'Noto Serif TC', serif; font-feature-settings: "ss01" 1; }
-    .font-ledger-mono { font-family: 'IBM Plex Mono', 'Noto Sans Mono', monospace; }
+    .font-display { font-family: 'Fraunces', 'Noto Serif TC', serif; font-feature-settings: "ss01" 1; }
+    .font-mono-ledger { font-family: 'IBM Plex Mono', 'Noto Sans Mono', monospace; }
     .dot-leader {
-      flex: 1 1 auto;
-      min-width: 12px;
+      flex: 1 1 auto; min-width: 8px;
       border-bottom: 1.5px dotted currentColor;
-      opacity: 0.28;
-      transform: translateY(-4px);
-      margin: 0 2px;
+      opacity: 0.2; transform: translateY(-4px); margin: 0 4px;
     }
+    html { -webkit-tap-highlight-color: transparent; }
+    * { -webkit-font-smoothing: antialiased; }
   `}</style>
-);
-
-// ─── 對帳單背景紋理（極細直向刻度，取代原本的霓光光暈） ───────────────
-const LedgerBackdrop = () => (
-  <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-    <div className="absolute inset-0 bg-[#EEF0EC] dark:bg-[#0B0D12] transition-colors duration-500" />
-    <div
-      className="absolute inset-0 opacity-[0.05] dark:opacity-[0.06]"
-      style={{
-        backgroundImage: "repeating-linear-gradient(180deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 28px)",
-        color: "#3A3F33",
-      }}
-    />
-    <div className="absolute top-0 left-0 right-0 h-px bg-[#B8933C]/40" />
-  </div>
 );
 
 export default function HomePage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [formData, setFormData] = useState(defaultForm);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
@@ -71,8 +53,15 @@ export default function HomePage() {
   const [showHistoryForm, setShowHistoryForm] = useState(false);
   const [historyFormData, setHistoryFormData] = useState({ date: "", netWorth: "" });
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [goals, setGoals] = useState<any[]>([]);
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<any | null>(null);
+  const [goalForm, setGoalForm] = useState({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" });
+  const [hideBalance, setHideBalance] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // 🌟 多用戶認證系統
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -93,22 +82,22 @@ export default function HomePage() {
 
   useEffect(() => {
     setMounted(true);
-    if (localStorage.getItem("networth-dark-mode") === "true") { setIsDarkMode(true); document.documentElement.classList.add("dark"); }
-    // 用 cookie 驗證登入狀態（向後端確認 token 是否有效）
+    const saved = localStorage.getItem("networth-dark-mode");
+    if (saved === "true") { setIsDarkMode(true); document.documentElement.classList.add("dark"); }
     fetch("/api/auth").then(res => { if (res.ok) setIsAuthenticated(true); }).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
-      void (async () => { await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchExchangeRate()]); })();
+      void (async () => { await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchExchangeRate(), fetchGoals()]); })();
     }
   }, [isAuthenticated]);
 
   const toggleDarkMode = () => {
-    const newMode = !isDarkMode;
-    setIsDarkMode(newMode);
-    document.documentElement.classList.toggle("dark", newMode);
-    localStorage.setItem("networth-dark-mode", String(newMode));
+    const next = !isDarkMode;
+    setIsDarkMode(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("networth-dark-mode", String(next));
   };
 
   const handleLogout = async () => {
@@ -117,66 +106,68 @@ export default function HomePage() {
     setAuthEmail(""); setAuthPassword("");
   };
 
-  async function handleAuthSubmit(e: FormEvent) {
-    e.preventDefault();
-    setAuthError(""); setAuthLoading(true);
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
     try {
-      const res = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: authMode, email: authEmail, password: authPassword }),
-      });
+      const res = await fetch("/api/user/me", { method: "DELETE" });
+      if (res.ok) { setIsAuthenticated(false); setAccounts([]); setHistory([]); }
+    } finally { setDeletingAccount(false); setShowDeleteConfirm(false); }
+  };
+
+  async function handleAuthSubmit(e: FormEvent) {
+    e.preventDefault(); setAuthError(""); setAuthLoading(true);
+    try {
+      const res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: authMode, email: authEmail, password: authPassword }) });
       const data = await res.json();
-      if (res.ok) {
-        setIsAuthenticated(true);
-      } else {
-        setAuthError(data.message || "發生錯誤，請稍後再試");
-      }
-    } catch {
-      setAuthError("網路錯誤，請稍後再試");
-    } finally {
-      setAuthLoading(false);
+      if (res.ok) { setIsAuthenticated(true); } else { setAuthError(data.message || "發生錯誤"); }
+    } catch { setAuthError("網路錯誤，請稍後再試"); } finally { setAuthLoading(false); }
+  }
+
+  async function fetchAccounts() { try { const res = await fetch("/api/accounts"); if (res.ok) setAccounts(await res.json()); } catch (e) {} }
+  async function fetchHistory() { try { const res = await fetch("/api/history"); if (res.ok) setHistory(await res.json()); } catch (e) {} }
+  async function fetchTransactions() { try { const res = await fetch("/api/transactions"); if (res.ok) setTransactions(await res.json()); } catch (e) {} }
+  async function fetchExchangeRate() { try { const res = await fetch("/api/exchange-rate", { cache: "no-store" }); if (res.ok) { const d = await res.json(); if (d?.rate) setExchangeRate(d.rate); } } catch (e) {} }
+
+  async function fetchGoals() { try { const res = await fetch("/api/goals"); if (res.ok) setGoals(await res.json()); } catch (e) {} }
+
+  async function handleGoalSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const method = editingGoal ? "PUT" : "POST";
+    const body = editingGoal
+      ? { id: editingGoal.id, ...goalForm, targetAmount: Number(goalForm.targetAmount) }
+      : { ...goalForm, targetAmount: Number(goalForm.targetAmount) };
+    const res = await fetch("/api/goals", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (res.ok) {
+      setShowGoalForm(false); setEditingGoal(null);
+      setGoalForm({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" });
+      await fetchGoals();
     }
   }
 
-  async function fetchAccounts() {
-    try { const res = await fetch("/api/accounts"); if (res.ok) setAccounts(await res.json()); } catch (e) {}
-  }
-  async function fetchHistory() {
-    try { const res = await fetch("/api/history"); if (res.ok) setHistory(await res.json()); } catch (e) {}
-  }
-  async function fetchTransactions() {
-    try { const res = await fetch("/api/transactions"); if (res.ok) setTransactions(await res.json()); } catch (e) {}
-  }
-  async function fetchExchangeRate() {
-    try { const res = await fetch("/api/exchange-rate", { cache: "no-store" }); if (res.ok) { const data = await res.json(); if (data?.rate) setExchangeRate(data.rate); } } catch (e) {}
+  async function handleDeleteGoal(id: string) {
+    if (!window.confirm("確定要刪除這個目標嗎？")) return;
+    await fetch(`/api/goals?id=${id}`, { method: "DELETE" });
+    await fetchGoals();
   }
 
   function resetForm() { setFormData(defaultForm); setEditingAccountId(null); setShowForm(false); }
 
   function startEdit(account: any) {
-    setFormData({
-      name: account.name, type: account.type, category: account.category, symbol: account.symbol ?? "",
-      quantity: String(account.quantity ?? account.currentValue ?? 0), currency: account.currency,
-      isApiConnected: Boolean(account.isApiConnected), apiSource: account.apiSource ?? "BITFINEX",
-      apiKey: account.apiKey ?? "", apiSecret: account.apiSecret ?? "",
-      monthlyDeductionAmount: account.monthlyDeductionAmount ? String(account.monthlyDeductionAmount) : "",
-      deductionDate: account.deductionDate ? String(account.deductionDate) : "",
-    });
-    setEditingAccountId(account.id); setShowForm(true); setError(null); setMessage(null);
+    setFormData({ name: account.name, type: account.type, category: account.category, symbol: account.symbol ?? "", quantity: String(account.quantity ?? account.currentValue ?? 0), currency: account.currency, isApiConnected: Boolean(account.isApiConnected), apiSource: account.apiSource ?? "BITFINEX", apiKey: account.apiKey ?? "", apiSecret: account.apiSecret ?? "", monthlyDeductionAmount: account.monthlyDeductionAmount ? String(account.monthlyDeductionAmount) : "", deductionDate: account.deductionDate ? String(account.deductionDate) : "" });
+    setEditingAccountId(account.id); setShowForm(true); setError(null);
   }
 
   async function handleSubmit(e: FormEvent) {
-    e.preventDefault(); setError(null); setMessage(null);
+    e.preventDefault(); setError(null);
     if (!formData.name.trim() || !formData.type || !formData.category) return setError("請填寫完整資訊");
     const payload = { ...formData, quantity: isCryptoApiMode ? 0 : Number(formData.quantity || 0), symbol: isCryptoApiMode ? formData.apiSource : formData.symbol || null, monthlyDeductionAmount: Number(formData.monthlyDeductionAmount || 0), deductionDate: Number(formData.deductionDate || 0) };
     setLoading(true);
     try {
       const res = await fetch(editingAccountId ? `/api/accounts/${editingAccountId}` : "/api/accounts", { method: editingAccountId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error("儲存失敗");
-      setMessage("已儲存。"); setTimeout(() => resetForm(), 800);
+      setTimeout(() => resetForm(), 500);
       await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]);
-    } catch (err) { setError("儲存發生錯誤。"); } finally { setLoading(false); }
+    } catch { setError("儲存發生錯誤。"); } finally { setLoading(false); }
   }
 
   async function handleDelete(accountId: string) {
@@ -195,7 +186,7 @@ export default function HomePage() {
     setHistoryLoading(true);
     try {
       const res = await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(historyFormData) });
-      if (res.ok) { alert("✅ 補登成功！"); setShowHistoryForm(false); await fetchHistory(); }
+      if (res.ok) { setShowHistoryForm(false); await fetchHistory(); }
     } catch (e) {} finally { setHistoryLoading(false); }
   }
 
@@ -209,33 +200,56 @@ export default function HomePage() {
     const historyMap = new Map<string, number>();
     for (const p of sorted) historyMap.set(getTWDateStr(new Date(p.date)), p.netWorth);
     historyMap.set(getTWDateStr(now), currentNetWorth);
-
     const startDate = new Date(now.getTime());
-    let stepDays = 1; // 預設每天一個點
+    let stepDays = 1;
+    if (selectedTimeframe === "day") { startDate.setDate(now.getDate() - 13); stepDays = 1; }
+    else if (selectedTimeframe === "month") { startDate.setMonth(now.getMonth() - 6); stepDays = 7; }
+    else { startDate.setFullYear(now.getFullYear() - 5); stepDays = 30; }
+    startDate.setHours(0, 0, 0, 0);
+    const result: { label: string; netWorth: number }[] = [];
+    let lastKnown = 0;
 
     if (selectedTimeframe === "day") {
-      startDate.setDate(now.getDate() - 13);
-      stepDays = 1;
+      // 兩周：只取 7 個點（每兩天一個點），標籤顯示 月/日
+      for (let i = 13; i >= 0; i -= 2) {
+        const d = new Date(now.getTime()); d.setDate(now.getDate() - i);
+        const dateStr = getTWDateStr(d);
+        if (historyMap.has(dateStr)) lastKnown = historyMap.get(dateStr)!;
+        result.push({ label: `${d.getMonth() + 1}/${d.getDate()}`, netWorth: lastKnown });
+      }
     } else if (selectedTimeframe === "month") {
-      startDate.setMonth(now.getMonth() - 6);
-      stepDays = 7; // 六個月用每週一個點
+      // 六個月：每月取 1 個點（月初），顯示 N月
+      for (let m = 5; m >= 0; m--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+        const dateStr = getTWDateStr(d);
+        // 找這個月最近的有資料的一天
+        let val = lastKnown;
+        for (let day = 0; day <= 31; day++) {
+          const check = new Date(d.getFullYear(), d.getMonth(), 1 + day);
+          if (check.getMonth() !== d.getMonth()) break;
+          const s = getTWDateStr(check);
+          if (historyMap.has(s)) val = historyMap.get(s)!;
+        }
+        lastKnown = val;
+        result.push({ label: `${d.getMonth() + 1}月`, netWorth: lastKnown });
+      }
+      // 加上今天
+      result.push({ label: "今", netWorth: currentNetWorth });
     } else {
-      startDate.setFullYear(now.getFullYear() - 5);
-      stepDays = 30; // 五年用每月一個點
+      // 五年：每年取 1 個點，顯示 YYYY
+      const startYear = now.getFullYear() - 4;
+      for (let y = startYear; y <= now.getFullYear(); y++) {
+        const d = new Date(y, 0, 1);
+        let val = lastKnown;
+        for (const [k, v] of historyMap) {
+          if (k.startsWith(`${y}-`)) { val = v; }
+        }
+        lastKnown = val;
+        result.push({ label: `${y}`, netWorth: lastKnown });
+      }
+      result.push({ label: "今", netWorth: currentNetWorth });
     }
-    startDate.setHours(0, 0, 0, 0);
 
-    const result = [];
-    let lastKnown = 0;
-    const daysToGenerate = Math.ceil((now.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1;
-
-    for (let i = daysToGenerate - 1; i >= 0; i -= stepDays) {
-      const d = new Date(now.getTime());
-      d.setDate(now.getDate() - i);
-      const dateStr = getTWDateStr(d);
-      if (historyMap.has(dateStr)) lastKnown = historyMap.get(dateStr)!;
-      result.push({ label: `${d.getMonth() + 1}/${d.getDate()}`, netWorth: lastKnown });
-    }
     return result;
   }
 
@@ -251,15 +265,9 @@ export default function HomePage() {
     return accountGroups.map(group => {
       const relevant = accounts.filter(a => group.categories.includes(a.category));
       if (relevant.length === 0) return null;
-      const cards = Object.values(relevant.reduce((res:any, acc:any) => {
+      const cards = Object.values(relevant.reduce((res: any, acc: any) => {
         const key = symbolRequiredCategories.includes(acc.category) ? `${acc.symbol}::${acc.name}` : acc.name.toLowerCase();
-        // 🌟 這裡把 currentPrice 跟 currency 記錄下來！
-        if (!res[key]) res[key] = {
-          id: key, title: acc.symbol || acc.name, subtitle: acc.name,
-          category: acc.category, quantity: 0, currentValue: 0,
-          currentPrice: acc.currentPrice, currency: acc.currency, // ✅ 加回這行
-          account: acc
-        };
+        if (!res[key]) res[key] = { id: key, title: acc.symbol || acc.name, subtitle: acc.name, category: acc.category, quantity: 0, currentValue: 0, currentPrice: acc.currentPrice, currency: acc.currency, account: acc };
         res[key].quantity += Number(acc.quantity ?? 0);
         res[key].currentValue += Number(acc.currentValue ?? 0);
         return res;
@@ -268,92 +276,42 @@ export default function HomePage() {
     }).filter(Boolean);
   }, [accounts]);
 
-  // ─── 對帳單樣式系統 ───────────────────────────────────────────
-  const themeClasses = "bg-[#EEF0EC] dark:bg-[#0B0D12] transition-colors duration-500 font-sans selection:bg-[#B8933C]/25 text-[#1C1F1A] dark:text-[#E7E5DE]";
-
-  // 對帳單卡片：細邊線 + 極淺陰影，取代玻璃模糊
-  const sheet = "relative z-10 bg-white dark:bg-[#12151C] border border-black/[0.08] dark:border-white/[0.08] shadow-[0_1px_0_rgba(0,0,0,0.03)] rounded-md";
-  const sheetHeader = "text-xs font-semibold tracking-[0.18em] uppercase text-[#6B7066] dark:text-[#8A8F82]";
-
-  const inputClasses = "w-full h-11 px-3.5 text-sm outline-none bg-transparent text-[#1C1F1A] dark:text-[#E7E5DE] border-b-2 border-black/15 dark:border-white/15 focus:border-[#B8933C] transition-colors";
-  const btnPrimary = "w-full py-3.5 text-sm font-semibold tracking-wide bg-[#1C1F1A] dark:bg-[#B8933C] text-[#EEF0EC] dark:text-[#0B0D12] rounded-sm hover:opacity-90 transition-all cursor-pointer";
-  const btnIcon = "flex items-center justify-center p-2.5 bg-transparent border border-black/10 dark:border-white/10 text-[#1C1F1A] dark:text-[#E7E5DE] rounded-sm hover:border-[#B8933C]/60 hover:text-[#B8933C] transition-all cursor-pointer";
-  const btnAction = "flex items-center justify-center gap-2 px-5 py-3 bg-[#1C1F1A] dark:bg-[#B8933C] text-[#EEF0EC] dark:text-[#0B0D12] rounded-sm hover:opacity-90 transition-all cursor-pointer text-sm font-semibold";
-
-  // 帳本明細列：名稱 …點狀引導線… 金額
-  function LedgerRow({ card }: { card: any }) {
-    const showSubtitle = symbolRequiredCategories.includes(card.category) && card.subtitle && card.subtitle !== card.title;
-    return (
-      <div className="group relative py-3 px-1 border-b border-dashed border-black/[0.08] dark:border-white/[0.08] last:border-b-0">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold truncate">{card.title}</span>
-          <span className="text-[10px] font-semibold tracking-wider uppercase text-[#6B7066] dark:text-[#8A8F82] shrink-0">
-            {categoryLabelMap[card.category]}
-          </span>
-          <span className="dot-leader" aria-hidden="true" />
-          <span className="font-ledger-mono text-sm font-semibold tracking-tight shrink-0">
-            NT$ {formatCurrency(card.currentValue)}
-          </span>
-        </div>
-        {showSubtitle && (
-          <p className="text-xs text-[#B8933C] font-medium truncate mt-0.5">{card.subtitle}</p>
-        )}
-        <div className="mt-1 flex items-baseline justify-between gap-2">
-          <p className="font-ledger-mono text-xs text-[#6B7066] dark:text-[#8A8F82] flex items-center gap-2">
-            <span>
-              {symbolRequiredCategories.includes(card.category) ? `持有 ${formatCurrency(card.quantity)} 股` : `餘額 ${formatCurrency(card.quantity)}`}
-            </span>
-            {symbolRequiredCategories.includes(card.category) && card.currentPrice > 0 && (
-              <>
-                <span className="opacity-40">·</span>
-                <span className="text-[#4F7B5E] dark:text-[#7FAE8F] font-semibold">
-                  @ {formatCurrency(card.currentPrice)} {card.currency}
-                </span>
-              </>
-            )}
-          </p>
-          <div className="flex items-center gap-1">
-            <button onClick={() => startEdit(card.account)} className="p-1.5 text-[#6B7066] dark:text-[#8A8F82] hover:text-[#B8933C] transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
-            <button onClick={() => handleDelete(card.account.id)} className="p-1.5 text-[#6B7066] dark:text-[#8A8F82] hover:text-[#A24936] transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const bg = "bg-[#EEF0EC] dark:bg-[#0B0D12]";
+  const surface = "bg-white dark:bg-[#12151C] border border-black/[0.07] dark:border-white/[0.07]";
+  const textPrimary = "text-[#1C1F1A] dark:text-[#E7E5DE]";
+  const textMuted = "text-[#6B7066] dark:text-[#8A8F82]";
+  const gold = "#B8933C";
+  const inputCls = "w-full h-11 px-3.5 text-sm outline-none bg-transparent text-[#1C1F1A] dark:text-[#E7E5DE] border-b-2 border-black/15 dark:border-white/15 focus:border-[#B8933C] transition-colors";
+  const btnPrimary = "w-full py-3.5 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-[#EEF0EC] dark:text-[#0B0D12] rounded-lg hover:opacity-90 transition-all cursor-pointer";
+  const sectionLabel = "text-[9px] font-bold tracking-[0.2em] uppercase text-[#6B7066] dark:text-[#8A8F82]";
 
   if (mounted && !isAuthenticated) {
     return (
-      <main className={`min-h-screen flex items-center justify-center p-4 ${themeClasses}`}>
+      <main className={`min-h-screen flex items-center justify-center p-4 ${bg} ${textPrimary}`}>
         <FontStyles />
-        <LedgerBackdrop />
-        <div className={`w-full max-w-sm p-9 ${sheet} flex flex-col items-center`}>
+        <div className={`w-full max-w-sm p-8 ${surface} rounded-2xl flex flex-col items-center`}>
           <div className="p-3.5 mb-6 border-2 border-[#1C1F1A] dark:border-[#B8933C] rounded-full">
             <Lock className="h-6 w-6 text-[#1C1F1A] dark:text-[#B8933C]" />
           </div>
-          <h1 className="font-ledger-display text-2xl font-semibold tracking-tight">淨資產對帳單</h1>
-          <p className="text-[11px] font-semibold tracking-[0.25em] mb-6 text-[#6B7066] dark:text-[#8A8F82]">
+          <h1 className="font-display text-2xl font-semibold tracking-tight">淨資產對帳單</h1>
+          <p className={`text-[11px] font-semibold tracking-[0.25em] mb-8 mt-1 ${textMuted}`}>
             {authMode === "login" ? "SIGN IN · 登入帳號" : "REGISTER · 建立帳號"}
           </p>
-
-          <form onSubmit={handleAuthSubmit} className="w-full space-y-5 z-10">
+          <form onSubmit={handleAuthSubmit} className="w-full space-y-5">
             <div>
-              <label className="block text-xs font-semibold tracking-widest uppercase text-[#6B7066] dark:text-[#8A8F82] mb-2">電子郵件</label>
-              <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="your@email.com" className={inputClasses} required />
+              <label className={`block text-xs mb-2 ${sectionLabel}`}>電子郵件</label>
+              <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="your@email.com" className={inputCls} required />
             </div>
             <div>
-              <label className="block text-xs font-semibold tracking-widest uppercase text-[#6B7066] dark:text-[#8A8F82] mb-2">密碼{authMode === "register" ? "（至少 8 字元）" : ""}</label>
-              <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" className={inputClasses} required minLength={authMode === "register" ? 8 : 1} />
+              <label className={`block text-xs mb-2 ${sectionLabel}`}>密碼{authMode === "register" ? "（至少 8 字元）" : ""}</label>
+              <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" className={inputCls} required minLength={authMode === "register" ? 8 : 1} />
             </div>
-            {authError && <p className="text-sm font-medium text-[#A24936] bg-[#A24936]/8 p-3 rounded-sm text-center">{authError}</p>}
+            {authError && <p className="text-sm font-medium text-[#A24936] bg-[#A24936]/8 p-3 rounded-lg text-center">{authError}</p>}
             <button type="submit" disabled={authLoading} className={`mt-2 ${btnPrimary}`}>
               {authLoading ? "處理中…" : authMode === "login" ? "登入" : "建立帳號"}
             </button>
           </form>
-
-          <button
-            onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}
-            className="mt-6 text-xs text-[#6B7066] dark:text-[#8A8F82] hover:text-[#B8933C] transition-colors"
-          >
+          <button onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }} className={`mt-6 text-xs ${textMuted} hover:text-[#B8933C] transition-colors`}>
             {authMode === "login" ? "還沒有帳號？ 立即註冊" : "已有帳號？ 返回登入"}
           </button>
         </div>
@@ -361,268 +319,513 @@ export default function HomePage() {
     );
   }
 
+  const navItems: { key: Tab; icon: any; label: string }[] = [
+    { key: "overview", icon: LayoutDashboard, label: "總覽" },
+    { key: "assets", icon: PieChart, label: "資產" },
+    { key: "trends", icon: TrendingUp, label: "走勢" },
+    { key: "settings", icon: Settings, label: "設定" },
+  ];
+
   return (
-    <main className={`min-h-screen px-4 py-8 sm:px-6 lg:px-10 ${themeClasses}`}>
+    <div className={`min-h-screen ${bg} ${textPrimary} flex flex-col`}>
       <FontStyles />
-      <LedgerBackdrop />
-      <div className="mx-auto flex w-full max-w-[78rem] flex-col gap-6 relative z-10">
+      <div className="fixed top-0 left-0 right-0 h-px z-20" style={{ background: gold, opacity: 0.5 }} />
 
-        {/* 對帳單信頭 */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-4 w-4 text-[#B8933C]" />
-            <div>
-              <p className="font-ledger-display text-2xl font-semibold tracking-tight leading-none">
-                Net Worth <span className="italic font-normal text-[#6B7066] dark:text-[#8A8F82]">Statement</span>
-              </p>
-              <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#6B7066] dark:text-[#8A8F82] mt-1">
-                個人資產負債對帳單
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <button onClick={toggleDarkMode} className={btnIcon}>
-              {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-            </button>
-            <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-[#A24936] rounded-sm hover:bg-[#A24936]/8 transition-colors cursor-pointer border border-[#A24936]/25">
-              <LogOut className="h-4 w-4" /> 登出
-            </button>
-          </div>
-        </div>
+      <div className="flex-1 overflow-y-auto pb-24">
 
-        {/* 總覽與走勢 */}
-        <div className="grid lg:grid-cols-12 gap-6">
-
-          <div className={`lg:col-span-5 p-8 ${sheet} flex flex-col justify-center`}>
-            <p className={sheetHeader}><Wallet className="inline h-3.5 w-3.5 mr-1.5 -mt-0.5" />總淨資產</p>
-            <h1 className="font-ledger-display mt-3 text-5xl sm:text-6xl font-semibold tracking-tight tabular-nums">
-              NT$ {formatCurrency(summary.netWorth)}
-            </h1>
-
-            <div className="mt-7 space-y-2.5 font-ledger-mono text-sm">
-              <div className="flex items-baseline gap-2">
-                <span className="text-[#6B7066] dark:text-[#8A8F82]">總資產</span>
-                <span className="dot-leader" aria-hidden="true" />
-                <span className="font-semibold text-[#4F7B5E] dark:text-[#7FAE8F]">NT$ {formatCurrency(summary.totalAssets)}</span>
+        {activeTab === "overview" && (
+          <div className="px-4 pt-8 pb-4 max-w-lg mx-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-3.5 w-3.5" style={{ color: gold }} />
+                <span className="font-display text-base font-semibold tracking-tight">Net Worth <span className={`font-normal italic ${textMuted}`}>Statement</span></span>
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-[#6B7066] dark:text-[#8A8F82]">總負債</span>
-                <span className="dot-leader" aria-hidden="true" />
-                <span className="font-semibold text-[#A24936]">NT$ {formatCurrency(summary.totalLiabilities)}</span>
-              </div>
-            </div>
-
-            <div className="mt-8 flex items-center gap-2.5">
-              <button onClick={handleSyncPrices} disabled={syncing} className={btnIcon}>
-                <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+              <button onClick={toggleDarkMode} className={`p-2 rounded-lg ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
               </button>
-              <button
-                onClick={() => { resetForm(); setShowForm(true); }}
-                className="flex items-center justify-center p-2.5 rounded-sm hover:opacity-90 transition-all cursor-pointer"
-                style={{ backgroundColor: "#e2b098" }}
-                title="新增項目"
-              >
-                <Plus className="h-4 w-4 text-white" />
-              </button>
-              <div className="ml-auto font-ledger-mono text-xs px-3 py-2 border border-black/10 dark:border-white/10 rounded-sm">
-                USD/TWD {syncing ? "…" : (exchangeRate?.toFixed(2) || "—")}
-              </div>
             </div>
-          </div>
 
-          <div className={`lg:col-span-7 p-6 xl:p-7 ${sheet} flex flex-col`}>
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-baseline gap-3">
-                <p className={sheetHeader}>歷史走勢</p>
-                <button onClick={() => setShowHistoryForm(true)} className="text-xs font-semibold text-[#B8933C] hover:underline underline-offset-2">
-                  + 手動補登
+            <div className={`${surface} rounded-2xl p-5`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={sectionLabel}><Wallet className="inline h-3 w-3 mr-1 -mt-0.5" />總淨資產</span>
+                <button onClick={() => setHideBalance(!hideBalance)} className={`p-1 ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                  {hideBalance ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <div className="flex gap-4 font-ledger-mono text-xs">
-                {(["day", "month", "year"] as const).map((item) => (
-                  <button
-                    key={item}
-                    onClick={() => setTimeframe(item)}
-                    className={`pb-1 border-b-2 transition-all font-semibold ${timeframe === item ? "border-[#B8933C] text-[#1C1F1A] dark:text-[#E7E5DE]" : "border-transparent text-[#6B7066] dark:text-[#8A8F82] hover:text-[#1C1F1A] dark:hover:text-white"}`}
-                  >
-                    {item === "day" ? "兩周" : item === "month" ? "六個月" : "五年"}
-                  </button>
+              <p className="font-display text-4xl font-semibold tracking-tight mt-2 mb-4">
+                {hideBalance ? "NT$ ••••••" : `NT$ ${formatCurrency(summary.netWorth)}`}
+              </p>
+              <div className="space-y-2 font-mono-ledger text-sm">
+                <div className="flex items-baseline gap-2">
+                  <span className={textMuted}>總資產</span>
+                  <span className="dot-leader" />
+                  <span className="font-semibold text-[#4F7B5E] dark:text-[#7FAE8F]">{hideBalance ? "••••••" : `NT$ ${formatCurrency(summary.totalAssets)}`}</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className={textMuted}>總負債</span>
+                  <span className="dot-leader" />
+                  <span className="font-semibold text-[#A24936]">{hideBalance ? "••••••" : `NT$ ${formatCurrency(summary.totalLiabilities)}`}</span>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-black/[0.06] dark:border-white/[0.06] flex items-center gap-2">
+                <button onClick={handleSyncPrices} disabled={syncing} className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${surface} rounded-lg ${textMuted} hover:text-[#B8933C] transition-all`}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                  {syncing ? "同步中…" : "同步"}
+                </button>
+                <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-white transition-all" style={{ background: "#e2b098" }}>
+                  <Plus className="h-3.5 w-3.5" /> 新增項目
+                </button>
+                <div className={`ml-auto font-mono-ledger text-[11px] ${textMuted}`}>
+                  USD/TWD {exchangeRate?.toFixed(2) || "—"}
+                </div>
+              </div>
+            </div>
+
+            {/* 目標進度 — 緊湊橫條樣式 */}
+            <div className="flex items-center justify-between px-1">
+              <span className={`text-[10px] font-bold tracking-[0.18em] uppercase ${textMuted}`}>目標</span>
+              <button onClick={() => { setEditingGoal(null); setGoalForm({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" }); setShowGoalForm(true); }} className={`text-[10px] font-semibold ${textMuted} hover:text-[#B8933C] transition-colors`}>+ 新增</button>
+            </div>
+            {goals.length === 0 ? (
+              <button onClick={() => { setEditingGoal(null); setGoalForm({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" }); setShowGoalForm(true); }} className={`w-full px-4 py-3 flex items-center gap-2 ${surface} rounded-xl border-dashed ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                <span>🎯</span>
+                <span className="text-xs font-medium">設定第一個財務目標</span>
+                <Plus className="h-3.5 w-3.5 ml-auto" />
+              </button>
+            ) : (
+              <div className={`${surface} rounded-xl overflow-hidden`}>
+                {goals.map((goal: any, idx: number) => (
+                  <div key={goal.id} className={`px-4 py-3 ${idx !== 0 ? "border-t border-black/[0.05] dark:border-white/[0.05]" : ""}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {goal.emoji && <span className="text-sm leading-none">{goal.emoji}</span>}
+                      <span className="text-xs font-semibold flex-1 truncate">{goal.name}</span>
+                      <span className="font-mono-ledger text-[11px] font-bold shrink-0" style={{ color: goal.progress >= 100 ? "#4F7B5E" : "#B8933C" }}>
+                        {goal.progress >= 100 ? "✓ 達標" : `${goal.progress}%`}
+                      </span>
+                      <button onClick={() => { setEditingGoal(goal); setGoalForm({ name: goal.name, targetAmount: String(goal.targetAmount), type: goal.type, accountId: goal.accountId || "", emoji: goal.emoji || "" }); setShowGoalForm(true); }} className={`p-0.5 ${textMuted} hover:text-[#B8933C] transition-colors`}><Pencil className="h-3 w-3" /></button>
+                      <button onClick={() => handleDeleteGoal(goal.id)} className={`p-0.5 ${textMuted} hover:text-[#A24936] transition-colors`}><Trash2 className="h-3 w-3" /></button>
+                    </div>
+                    <div className="w-full bg-black/[0.06] dark:bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
+                      <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${goal.progress}%`, background: goal.progress >= 100 ? "#4F7B5E" : "#B8933C" }} />
+                    </div>
+                    <div className={`flex justify-between mt-1 font-mono-ledger text-[10px] ${textMuted}`}>
+                      <span>NT$ {Number(goal.currentAmount).toLocaleString()}</span>
+                      {goal.progress < 100
+                        ? <span>目標 NT$ {Number(goal.targetAmount).toLocaleString()}</span>
+                        : <span className="text-[#4F7B5E] dark:text-[#7FAE8F]">🎉 已達標！</span>
+                      }
+                    </div>
+                  </div>
                 ))}
               </div>
+            )}
+
+            {renderedAccountGroups.map((group: any) => (
+              <div key={group.title} className={`${surface} rounded-2xl p-5`}>
+                <div className="flex items-center justify-between pb-3 mb-2 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
+                  <h3 className="font-display text-sm font-semibold">{group.title}</h3>
+                  <span className={`font-mono-ledger text-[10px] ${textMuted}`}>{group.cards.length} 項</span>
+                </div>
+                {group.cards.map((card: any) => {
+                  const showSubtitle = symbolRequiredCategories.includes(card.category) && card.subtitle && card.subtitle !== card.title;
+                  return (
+                    <div key={card.id} className="py-3 border-b border-dashed border-black/[0.07] dark:border-white/[0.07] last:border-b-0">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm font-semibold truncate">{card.title.replace(/\.TW$/i, "")}</span>
+                        <span className={`text-[9px] font-bold tracking-wider uppercase ${textMuted} shrink-0`}>{categoryLabelMap[card.category]}</span>
+                        <span className="dot-leader" />
+                        <span className="font-mono-ledger text-sm font-semibold shrink-0">NT$ {formatCurrency(card.currentValue)}</span>
+                      </div>
+                      {showSubtitle && <p className="text-xs mt-0.5 truncate" style={{ color: gold }}>{card.subtitle}</p>}
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <p className={`font-mono-ledger text-xs ${textMuted} flex items-center gap-2`}>
+                          <span>{symbolRequiredCategories.includes(card.category) ? `持有 ${formatCurrency(card.quantity)} 股` : `餘額 ${formatCurrency(card.quantity)}`}</span>
+                          {symbolRequiredCategories.includes(card.category) && card.currentPrice > 0 && (
+                            <><span className="opacity-30">·</span><span className="text-[#4F7B5E] dark:text-[#7FAE8F] font-semibold">@ {formatCurrency(card.currentPrice)} {card.currency}</span></>
+                          )}
+                        </p>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => startEdit(card.account)} className={`p-1.5 ${textMuted} hover:text-[#B8933C] transition-colors`}><Pencil className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => handleDelete(card.account.id)} className={`p-1.5 ${textMuted} hover:text-[#A24936] transition-colors`}><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "assets" && (
+          <div className="px-4 pt-8 pb-4 max-w-lg mx-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
+              <h2 className="font-display text-base font-semibold">資產明細</h2>
+              <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-white" style={{ background: "#e2b098" }}>
+                <Plus className="h-3.5 w-3.5" /> 新增
+              </button>
             </div>
-            <div className="h-[230px] w-full flex-1">
-              {mounted && chartData.length > 0 && (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 6, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#B8933C" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#B8933C" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: "2px",
-                        border: isDarkMode ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)",
-                        background: isDarkMode ? "#12151C" : "#FFFFFF",
-                        fontFamily: "IBM Plex Mono",
-                        fontSize: "12px",
-                        boxShadow: "none",
-                      }}
-                      formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]}
-                    />
-                    <Area type="monotone" dataKey="netWorth" stroke="#B8933C" strokeWidth={2} fillOpacity={1} fill="url(#colorNetWorth)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+            {accounts.filter(a => a.isActive !== false).length === 0 ? (
+              <div className={`${surface} rounded-2xl p-8 text-center`}>
+                <p className={`text-sm ${textMuted}`}>還沒有任何資產</p>
+                <button onClick={() => { resetForm(); setShowForm(true); }} className="mt-4 text-sm font-semibold" style={{ color: gold }}>+ 新增第一筆資產</button>
+              </div>
+            ) : (
+              (() => {
+                const activeAccounts = accounts.filter(a => a.isActive !== false);
+                const groups = [
+                  { label: "流動資金", cats: ["CASH", "BANK_ACCOUNT"] },
+                  { label: "台股", cats: ["TAIWAN_STOCK"] },
+                  { label: "美股", cats: ["US_STOCK"] },
+                  { label: "虛擬貨幣", cats: ["CRYPTO"] },
+                  { label: "其他資產", cats: ["FIXED_ASSET", "RECEIVABLE"] },
+                  { label: "負債", cats: ["PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"] },
+                ];
+                return (
+                  <div className="space-y-4">
+                    {groups.map(group => {
+                      const items = activeAccounts.filter(a => group.cats.includes(a.category));
+                      if (items.length === 0) return null;
+                      const groupTotal = items.reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+                      return (
+                        <div key={group.label}>
+                          <div className="flex items-center justify-between px-1 mb-2">
+                            <span className={`text-[10px] font-bold tracking-[0.15em] uppercase ${textMuted}`}>{group.label}</span>
+                            <span className={`font-mono-ledger text-[10px] ${textMuted}`}>NT$ {formatCurrency(groupTotal)}</span>
+                          </div>
+                          <div className={`${surface} rounded-xl overflow-hidden`}>
+                            {items.map((account, idx) => (
+                              <div key={account.id} className={`flex items-center justify-between p-4 ${idx !== 0 ? "border-t border-black/[0.05] dark:border-white/[0.05]" : ""}`}>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-sm font-semibold truncate block">{account.name}</span>
+                                  <p className={`font-mono-ledger text-xs ${textMuted} mt-0.5`}>
+                                    {account.symbol ? `${account.symbol.replace(/\.TW$/i, "")} · ` : ""}{formatCurrency(account.quantity)}{amountInputCategories.includes(account.category) ? "" : " 股"}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2 ml-3 shrink-0">
+                                  <p className="font-mono-ledger text-sm font-semibold">NT$ {formatCurrency(account.currentValue)}</p>
+                                  <button onClick={() => startEdit(account)} className={`p-1.5 ${textMuted} hover:text-[#B8933C] transition-colors`}><Pencil className="h-3.5 w-3.5" /></button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()
+            )}
+          </div>
+        )}
+
+        {activeTab === "trends" && (
+          <div className="px-4 pt-8 pb-4 max-w-lg mx-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
+              <h2 className="font-display text-base font-semibold">歷史走勢</h2>
+              <button onClick={() => setShowHistoryForm(true)} className="text-xs font-semibold hover:underline underline-offset-2" style={{ color: gold }}>+ 手動補登</button>
+            </div>
+            <div className={`${surface} rounded-xl p-1 flex gap-1`}>
+              {(["day", "month", "year"] as const).map(item => (
+                <button key={item} onClick={() => setTimeframe(item)} className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${timeframe === item ? "bg-[#1C1F1A] dark:bg-[#B8933C] text-white dark:text-black" : textMuted}`}>
+                  {item === "day" ? "兩周" : item === "month" ? "六個月" : "五年"}
+                </button>
+              ))}
+            </div>
+            <div className={`${surface} rounded-2xl p-4`}>
+              <div className="h-[240px]">
+                {mounted && chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 10, right: 6, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={gold} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={gold} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
+                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]} />
+                      <Area type="monotone" dataKey="netWorth" stroke={gold} strokeWidth={2} fillOpacity={1} fill="url(#chartGrad)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center">
+                    <p className={`text-sm ${textMuted}`}>尚無歷史資料</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* 帳本明細 */}
-        <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {renderedAccountGroups.map((group: any) => (
-            <div key={group.title} className={`${sheet} p-5 flex flex-col`}>
-              <div className="flex items-center justify-between pb-3 mb-1 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
-                <h3 className="font-ledger-display text-base font-semibold">{group.title}</h3>
-                <span className="font-ledger-mono text-[11px] text-[#6B7066] dark:text-[#8A8F82]">{group.cards.length} 項</span>
+        {activeTab === "settings" && (
+          <div className="px-4 pt-8 pb-4 max-w-lg mx-auto space-y-4">
+            <div className="pb-3 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
+              <h2 className="font-display text-base font-semibold">設定</h2>
+            </div>
+            <div className={`${surface} rounded-2xl overflow-hidden`}>
+              <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
+                <p className={sectionLabel}>外觀</p>
               </div>
-              <div className="flex-1">
-                {group.cards.map((card: any) => <LedgerRow key={card.id} card={card} />)}
+              <button onClick={toggleDarkMode} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+                <div className="flex items-center gap-3">
+                  {isDarkMode ? <Moon className="h-4 w-4" style={{ color: gold }} /> : <Sun className="h-4 w-4" style={{ color: gold }} />}
+                  <span className="text-sm font-medium">{isDarkMode ? "深色模式" : "淺色模式"}</span>
+                </div>
+                <span className={`text-xs ${textMuted}`}>切換</span>
+              </button>
+            </div>
+            <div className={`${surface} rounded-2xl overflow-hidden`}>
+              <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
+                <p className={sectionLabel}>資料</p>
+              </div>
+              <button onClick={handleSyncPrices} disabled={syncing} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} style={{ color: gold }} />
+                  <span className="text-sm font-medium">同步價格</span>
+                </div>
+                <span className={`font-mono-ledger text-xs ${textMuted}`}>{syncing ? "同步中…" : `USD/TWD ${exchangeRate?.toFixed(2) || "—"}`}</span>
+              </button>
+              <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
+                <button onClick={() => setShowHistoryForm(true)} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+                  <div className="flex items-center gap-3">
+                    <TrendingUp className="h-4 w-4" style={{ color: gold }} />
+                    <span className="text-sm font-medium">手動補登走勢</span>
+                  </div>
+                  <ChevronRight className={`h-4 w-4 ${textMuted}`} />
+                </button>
               </div>
             </div>
-          ))}
-        </section>
-
-        {/* 新增/編輯表單 */}
-        {showForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto ${sheet} !bg-white dark:!bg-[#12151C] shadow-2xl`}>
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-[#1C1F1A] dark:border-[#B8933C] bg-white dark:bg-[#12151C] p-5">
-                <h2 className="font-ledger-display text-lg font-semibold">{editingAccountId ? "編輯項目" : "新增項目"}</h2>
-                <button onClick={() => setShowForm(false)} className={btnIcon}><X className="h-4 w-4" /></button>
+            <div className={`${surface} rounded-2xl overflow-hidden`}>
+              <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
+                <p className={sectionLabel}>帳號</p>
               </div>
-              <div className="p-6">
-                <form onSubmit={handleSubmit} className="space-y-5">
+              <button onClick={handleLogout} className="w-full flex items-center p-4 gap-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+                <LogOut className="h-4 w-4 text-[#A24936]" />
+                <span className="text-sm font-medium text-[#A24936]">登出</span>
+              </button>
+              <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
+                <button onClick={() => setShowDeleteConfirm(true)} className="w-full flex items-center p-4 gap-3 hover:bg-[#A24936]/5 transition-colors">
+                  <AlertTriangle className="h-4 w-4 text-[#A24936]" />
+                  <span className="text-sm font-medium text-[#A24936]">刪除帳號與所有資料</span>
+                </button>
+              </div>
+            </div>
+            <p className={`text-center text-xs ${textMuted} pb-2`}>Net Worth Tracker · 版本 1.0</p>
+          </div>
+        )}
+      </div>
+
+      {/* 底部導覽列 */}
+      <div className={`fixed bottom-0 left-0 right-0 z-20 ${surface} border-t`} style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div className="flex max-w-lg mx-auto">
+          {navItems.map(({ key, icon: Icon, label }) => {
+            const active = activeTab === key;
+            return (
+              <button key={key} onClick={() => setActiveTab(key)} className="flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-colors cursor-pointer">
+                <Icon className="h-5 w-5" style={{ color: active ? gold : "#8A8F82" }} />
+                <span className="text-[10px] font-semibold" style={{ color: active ? gold : "#8A8F82" }}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 新增/編輯表單 */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className={`w-full max-w-lg max-h-[92vh] overflow-y-auto ${surface} rounded-2xl shadow-2xl`}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] bg-white dark:bg-[#12151C] p-5 rounded-t-2xl">
+              <h2 className="font-display text-base font-semibold">{editingAccountId ? "編輯項目" : "新增項目"}</h2>
+              <button onClick={() => setShowForm(false)} className={`p-2 ${textMuted} transition-colors`}><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-5">
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>名稱</label>
+                  <input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="例如：台積電" className={inputCls} />
+                </div>
+                <div className="grid gap-4 grid-cols-2">
                   <div>
-                    <label htmlFor="name" className={`block text-xs mb-2 ${sheetHeader}`}>名稱</label>
-                    <input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="例如：台積電" className={inputClasses} />
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>類型</label>
+                    <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} className={inputCls}>{typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
                   </div>
-                  <div className="grid gap-5 grid-cols-2">
-                    <div>
-                      <label htmlFor="type" className={`block text-xs mb-2 ${sheetHeader}`}>類型</label>
-                      <select id="type" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} className={inputClasses}>{typeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-                    </div>
-                    <div>
-                      <label htmlFor="category" className={`block text-xs mb-2 ${sheetHeader}`}>類別</label>
-                      <select id="category" value={formData.category} onChange={(e) => { const n = e.target.value; setFormData({ ...formData, category: n, isApiConnected: n === "CRYPTO" ? formData.isApiConnected : false }); }} className={inputClasses}>{categoryOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-                    </div>
+                  <div>
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>類別</label>
+                    <select value={formData.category} onChange={(e) => { const n = e.target.value; setFormData({ ...formData, category: n, isApiConnected: n === "CRYPTO" ? formData.isApiConnected : false }); }} className={inputCls}>{categoryOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
                   </div>
-                  <div className="grid gap-5 grid-cols-2">
+                </div>
+                <div className="grid gap-4 grid-cols-2">
+                  <div>
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>幣別</label>
+                    <select value={formData.currency} onChange={(e) => setFormData({ ...formData, currency: e.target.value })} className={inputCls}>{currencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+                  </div>
+                  {!showApiFields && (
                     <div>
-                      <label htmlFor="currency" className={`block text-xs mb-2 ${sheetHeader}`}>幣別</label>
-                      <select id="currency" value={formData.currency} onChange={(e) => setFormData({ ...formData, currency: e.target.value })} className={inputClasses}>{currencyOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+                      <label className={`block text-xs mb-2 ${sectionLabel}`}>{usesAmountInput ? "總金額" : "持有股數"}</label>
+                      <input type="number" step="any" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} className={`${inputCls} font-mono-ledger`} />
                     </div>
-                    {!showApiFields && (
-                      <div>
-                        <label htmlFor="quantity" className={`block text-xs mb-2 ${sheetHeader}`}>{usesAmountInput ? "總金額" : "持有股數"}</label>
-                        <input id="quantity" type="number" step="any" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} className={`${inputClasses} font-ledger-mono`} />
+                  )}
+                </div>
+                {requiresSymbol && (
+                  <div>
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>代號 {formData.category === "TAIWAN_STOCK" ? "（只需輸入數字，自動補 .TW）" : "(Symbol)"}</label>
+                    <input value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} placeholder={formData.category === "TAIWAN_STOCK" ? "例如：2330" : "例如：NVDA"} className={`${inputCls} font-mono-ledger`} />
+                  </div>
+                )}
+                {formData.category === "CRYPTO" && (
+                  <div className="p-4 border border-black/10 dark:border-white/10 rounded-xl space-y-4">
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                      <input type="checkbox" checked={formData.isApiConnected} onChange={(e) => setFormData({ ...formData, isApiConnected: e.target.checked })} className="h-4 w-4 accent-[#B8933C]" />
+                      <span className="text-sm font-semibold">連接交易所 API 自動同步</span>
+                    </label>
+                    {formData.isApiConnected && (
+                      <div className="space-y-4 pl-6">
+                        <div>
+                          <label className={`block text-xs mb-2 ${sectionLabel}`}>交易所</label>
+                          <select value={formData.apiSource} onChange={(e) => setFormData({ ...formData, apiSource: e.target.value })} className={inputCls}>
+                            <option value="BITFINEX">Bitfinex</option>
+                            <option value="BINANCE">幣安 Binance</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className={`block text-xs mb-2 ${sectionLabel}`}>API Key</label>
+                          <input type="password" autoComplete="off" value={formData.apiKey} onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                        </div>
+                        <div>
+                          <label className={`block text-xs mb-2 ${sectionLabel}`}>API Secret</label>
+                          <input type="password" autoComplete="off" value={formData.apiSecret} onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                        </div>
                       </div>
                     )}
                   </div>
-                  {requiresSymbol && (
+                )}
+                {formData.type === "LIABILITY" && (
+                  <div className="grid gap-4 grid-cols-2">
                     <div>
-                      <label htmlFor="symbol" className={`block text-xs mb-2 ${sheetHeader}`}>代號 (Symbol)</label>
-                      <input id="symbol" value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} placeholder="例如：2330.TW" className={`${inputClasses} font-ledger-mono`} />
+                      <label className={`block text-xs mb-2 ${sectionLabel}`}>每月扣款金額</label>
+                      <input type="number" step="any" min="0" placeholder="例如：15000" value={formData.monthlyDeductionAmount} onChange={(e) => setFormData({ ...formData, monthlyDeductionAmount: e.target.value })} className={`${inputCls} font-mono-ledger`} />
                     </div>
-                  )}
-
-                  {formData.category === "CRYPTO" && (
-                    <div className="p-4 border border-black/10 dark:border-white/10 rounded-sm space-y-4">
-                      <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={formData.isApiConnected}
-                          onChange={(e) => setFormData({ ...formData, isApiConnected: e.target.checked })}
-                          className="h-4 w-4 accent-[#B8933C]"
-                        />
-                        <span className="text-sm font-semibold">連接交易所 API 自動同步餘額</span>
-                      </label>
-                      {formData.isApiConnected && (
-                        <div className="space-y-4 pl-6">
-                          <p className={`${sheetHeader} !normal-case !tracking-normal font-ledger-mono`}>交易所：Bitfinex</p>
-                          <div>
-                            <label htmlFor="apiKey" className={`block text-xs mb-2 ${sheetHeader}`}>API Key</label>
-                            <input id="apiKey" type="password" autoComplete="off" value={formData.apiKey} onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })} className={`${inputClasses} font-ledger-mono`} />
-                          </div>
-                          <div>
-                            <label htmlFor="apiSecret" className={`block text-xs mb-2 ${sheetHeader}`}>API Secret</label>
-                            <input id="apiSecret" type="password" autoComplete="off" value={formData.apiSecret} onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })} className={`${inputClasses} font-ledger-mono`} />
-                          </div>
-                        </div>
-                      )}
+                    <div>
+                      <label className={`block text-xs mb-2 ${sectionLabel}`}>每月扣款日</label>
+                      <input type="number" step="1" min="1" max="31" placeholder="例如：5" value={formData.deductionDate} onChange={(e) => setFormData({ ...formData, deductionDate: e.target.value })} className={`${inputCls} font-mono-ledger`} />
                     </div>
-                  )}
-
-                  {formData.type === "LIABILITY" && (
-                    <div className="grid gap-5 grid-cols-2">
-                      <div>
-                        <label htmlFor="monthlyDeductionAmount" className={`block text-xs mb-2 ${sheetHeader}`}>每月扣款金額</label>
-                        <input id="monthlyDeductionAmount" type="number" step="any" min="0" placeholder="例如：15000" value={formData.monthlyDeductionAmount} onChange={(e) => setFormData({ ...formData, monthlyDeductionAmount: e.target.value })} className={`${inputClasses} font-ledger-mono`} />
-                      </div>
-                      <div>
-                        <label htmlFor="deductionDate" className={`block text-xs mb-2 ${sheetHeader}`}>每月扣款日</label>
-                        <input id="deductionDate" type="number" step="1" min="1" max="31" placeholder="例如：5" value={formData.deductionDate} onChange={(e) => setFormData({ ...formData, deductionDate: e.target.value })} className={`${inputClasses} font-ledger-mono`} />
-                      </div>
-                      <p className="col-span-2 text-xs text-[#6B7066] dark:text-[#8A8F82] -mt-2">
-                        每月到了扣款日，系統會自動從這筆負債的總金額扣掉扣款金額（月份天數不足時，會在當月最後一天扣款）。
-                      </p>
-                    </div>
-                  )}
-
-                  {error && <p className="text-sm font-medium text-[#A24936] bg-[#A24936]/8 p-3 rounded-sm">{error}</p>}
-                  <div className="mt-8 flex justify-end gap-3 pt-5 border-t border-black/10 dark:border-white/10">
-                    <button type="button" onClick={() => setShowForm(false)} className="px-5 py-3 text-sm font-semibold text-[#6B7066] dark:text-[#8A8F82] hover:text-[#1C1F1A] dark:hover:text-white transition-all cursor-pointer">取消</button>
-                    <button type="submit" disabled={loading} className={`px-7 ${btnPrimary} w-auto`}>確認儲存</button>
+                    <p className={`col-span-2 text-xs ${textMuted} -mt-2`}>每月到扣款日，系統自動從負債總額扣除。</p>
                   </div>
-                </form>
-              </div>
+                )}
+                {error && <p className="text-sm font-medium text-[#A24936] bg-[#A24936]/8 p-3 rounded-lg">{error}</p>}
+                <div className="flex gap-3 pt-4 border-t border-black/[0.06] dark:border-white/[0.06]">
+                  <button type="button" onClick={() => setShowForm(false)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer`}>取消</button>
+                  <button type="submit" disabled={loading} className="flex-1 py-3 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-white dark:text-black rounded-lg hover:opacity-90 transition-all cursor-pointer">{loading ? "儲存中…" : "確認儲存"}</button>
+                </div>
+              </form>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* 補登歷史表單 */}
-        {showHistoryForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className={`w-full max-w-sm ${sheet} !bg-white dark:!bg-[#12151C] shadow-2xl`}>
-              <div className="flex items-center justify-between border-b-2 border-[#1C1F1A] dark:border-[#B8933C] bg-white dark:bg-[#12151C] p-5">
-                <h2 className="font-ledger-display text-lg font-semibold">手動補登</h2>
-                <button onClick={() => setShowHistoryForm(false)} className={btnIcon}><X className="h-4 w-4" /></button>
-              </div>
-              <div className="p-6">
-                <form onSubmit={handleHistorySubmit} className="space-y-5">
-                  <div>
-                    <label className={`block text-xs mb-2 ${sheetHeader}`}>選擇日期</label>
-                    <input type="date" value={historyFormData.date} onChange={(e) => setHistoryFormData({ ...historyFormData, date: e.target.value })} className={`${inputClasses} font-ledger-mono`} required />
-                  </div>
-                  <div>
-                    <label className={`block text-xs mb-2 ${sheetHeader}`}>該日淨資產 (NT$)</label>
-                    <input type="number" placeholder="例如：50000" value={historyFormData.netWorth} onChange={(e) => setHistoryFormData({ ...historyFormData, netWorth: e.target.value })} className={`${inputClasses} font-ledger-mono`} required />
-                  </div>
-                  <div className="flex justify-end pt-4">
-                    <button type="submit" disabled={historyLoading} className={btnPrimary}>
-                      {historyLoading ? "處理中…" : "確認補登"}
-                    </button>
-                  </div>
-                </form>
-              </div>
+      {/* 補登歷史 */}
+      {showHistoryForm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl`}>
+            <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5">
+              <h2 className="font-display text-base font-semibold">手動補登走勢</h2>
+              <button onClick={() => setShowHistoryForm(false)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5">
+              <form onSubmit={handleHistorySubmit} className="space-y-5">
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>選擇日期</label>
+                  <input type="date" value={historyFormData.date} onChange={(e) => setHistoryFormData({ ...historyFormData, date: e.target.value })} className={`${inputCls} font-mono-ledger`} required />
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>該日淨資產 (NT$)</label>
+                  <input type="number" placeholder="例如：50000" value={historyFormData.netWorth} onChange={(e) => setHistoryFormData({ ...historyFormData, netWorth: e.target.value })} className={`${inputCls} font-mono-ledger`} required />
+                </div>
+                <button type="submit" disabled={historyLoading} className={btnPrimary}>
+                  {historyLoading ? "處理中…" : "確認補登"}
+                </button>
+              </form>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-      </div>
-    </main>
+      {/* 目標新增/編輯 Modal */}
+      {showGoalForm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl`}>
+            <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5">
+              <h2 className="font-display text-base font-semibold">{editingGoal ? "編輯目標" : "新增目標"}</h2>
+              <button onClick={() => setShowGoalForm(false)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5">
+              <form onSubmit={handleGoalSubmit} className="space-y-4">
+                <div className="flex gap-3">
+                  <div style={{width: "60px"}}>
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>圖示</label>
+                    <input value={goalForm.emoji} onChange={e => setGoalForm({...goalForm, emoji: e.target.value})} placeholder="🎯" className={`${inputCls} text-center text-xl`} maxLength={2} />
+                  </div>
+                  <div className="flex-1">
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>目標名稱</label>
+                    <input value={goalForm.name} onChange={e => setGoalForm({...goalForm, name: e.target.value})} placeholder="例如：買房頭期款" className={inputCls} required />
+                  </div>
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>目標金額 (NT$)</label>
+                  <input type="number" step="any" min="1" value={goalForm.targetAmount} onChange={e => setGoalForm({...goalForm, targetAmount: e.target.value})} placeholder="例如：3000000" className={`${inputCls} font-mono-ledger`} required />
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>計算基準</label>
+                  <select value={goalForm.type} onChange={e => setGoalForm({...goalForm, type: e.target.value, accountId: ""})} className={inputCls}>
+                    <option value="NET_WORTH">總淨資產</option>
+                    <option value="ACCOUNT">特定帳戶</option>
+                  </select>
+                </div>
+                {goalForm.type === "ACCOUNT" && (
+                  <div>
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>選擇帳戶</label>
+                    <select value={goalForm.accountId} onChange={e => setGoalForm({...goalForm, accountId: e.target.value})} className={inputCls} required>
+                      <option value="">請選擇帳戶</option>
+                      {accounts.filter(a => a.isActive !== false).map(a => (
+                        <option key={a.id} value={a.id}>{a.name}（NT$ {Number(a.currentValue).toLocaleString()}）</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setShowGoalForm(false)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer`}>取消</button>
+                  <button type="submit" className="flex-1 py-3 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-white dark:text-black rounded-lg cursor-pointer">儲存</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 刪除帳號確認 */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl p-6`}>
+            <div className="flex items-start gap-4 mb-5">
+              <div className="p-2 bg-[#A24936]/10 rounded-xl shrink-0">
+                <AlertTriangle className="h-6 w-6 text-[#A24936]" />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold text-[#A24936]">刪除帳號</h3>
+                <p className={`text-sm ${textMuted} mt-1 leading-relaxed`}>此操作將永久刪除你的帳號及所有資產、歷史記錄，無法復原。</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(false)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer`}>取消</button>
+              <button onClick={handleDeleteAccount} disabled={deletingAccount} className="flex-1 py-3 text-sm font-semibold bg-[#A24936] text-white rounded-lg hover:opacity-90 transition-all cursor-pointer">
+                {deletingAccount ? "刪除中…" : "確認刪除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

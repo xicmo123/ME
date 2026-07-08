@@ -61,7 +61,8 @@ model User {
   accounts      Account[]
   history       AssetHistory[]
   transactions  Transaction[]
-  
+  goals         Goal[]
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   
@@ -141,4 +142,22 @@ model AssetHistory {
   @@unique([userId, date])
   @@index([userId])
   @@index([date])
+}
+
+model Goal {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String   // 目標名稱，例如「買房頭期款」
+  targetAmount Float   // 目標金額（NT$）
+  type        String   @default("NET_WORTH") // NET_WORTH 或 ACCOUNT
+  accountId   String?  // type = ACCOUNT 時，指定哪個帳戶
+  emoji       String?  // 可選的 emoji，例如 🏠
+
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
 }

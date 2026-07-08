@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
         emailVerified: true,
         createdAt: true,
         accounts: {
-          where: { isActive: true },
+          where: {},  // 顯示所有資產，含停用的
           select: {
             id: true, name: true, type: true, category: true,
             symbol: true, quantity: true, currentPrice: true,
