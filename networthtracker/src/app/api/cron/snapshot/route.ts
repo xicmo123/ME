@@ -1,46 +1,50 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { getUserIdFromRequest } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 declare global {
-  // eslint-disable-next-line no-var
   var prisma: PrismaClient | undefined;
 }
 
 const prisma = globalThis.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const shouldPersist = searchParams.get("write") !== "false";
+  const customDate = searchParams.get("date");
 
   try {
     const accounts = await prisma.account.findMany({
-      where: {
-        isActive: true,
-      },
+      where: { isActive: true, userId },
     });
 
     const totalAssets = accounts
-      .filter((account) => account.type === "ASSET")
-      .reduce((sum, account) => sum + Number(account.currentValue ?? 0), 0);
+      .filter((a) => a.type === "ASSET")
+      .reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
 
     const totalLiabilities = accounts
-      .filter((account) => account.type === "LIABILITY")
-      .reduce((sum, account) => sum + Number(account.currentValue ?? 0), 0);
+      .filter((a) => a.type === "LIABILITY")
+      .reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
 
     const netWorth = totalAssets - totalLiabilities;
 
     const breakdown = JSON.stringify(
-      accounts.map((account) => ({
-        id: account.id,
-        name: account.name,
-        type: account.type,
-        category: account.category,
-        currentValue: account.currentValue,
+      accounts.map((a) => ({
+        id: a.id,
+        name: a.name,
+        type: a.type,
+        category: a.category,
+        currentValue: a.currentValue,
       }))
     );
 
-    const snapshotDate = new Date();
+    const snapshotDate = customDate ? new Date(customDate) : new Date();
     snapshotDate.setHours(0, 0, 0, 0);
 
     const snapshot = {
@@ -53,14 +57,15 @@ export async function GET(request: Request) {
 
     if (shouldPersist) {
       await prisma.assetHistory.upsert({
-        where: { date: snapshotDate },
-        update: {
-          totalAssets,
-          totalLiabilities,
-          netWorth,
-          breakdown,
+        where: {
+          userId_date: {
+            userId,
+            date: snapshotDate,
+          },
         },
+        update: { totalAssets, totalLiabilities, netWorth, breakdown },
         create: {
+          userId,
           date: snapshotDate,
           totalAssets,
           totalLiabilities,
@@ -71,7 +76,9 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      message: shouldPersist ? "Snapshot recorded successfully." : "Snapshot preview generated.",
+      message: shouldPersist
+        ? `Snapshot recorded for ${snapshotDate.toISOString()}`
+        : "Snapshot preview generated.",
       snapshot,
     });
   } catch (error) {

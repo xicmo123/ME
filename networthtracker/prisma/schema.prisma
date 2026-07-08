@@ -43,23 +43,51 @@ enum Currency {
   USD
 }
 
+// 🌟 新增：用户表
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String?  // 可为 null（如果用 OAuth）
+  
+  // 未来扩展：Google/GitHub OAuth
+  googleId      String?  @unique
+  githubId      String?  @unique
+  
+  emailVerified Boolean  @default(false)
+  verificationToken String? // 邮件验证 token
+  verificationTokenExpires DateTime?
+  
+  // 这个用户的所有资产
+  accounts      Account[]
+  history       AssetHistory[]
+  transactions  Transaction[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([email])
+}
+
 model Account {
   id            String          @id @default(cuid())
+  userId        String          // 🌟 新增：这条账户属于哪个用户
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
   name          String
   type          AccountType
   category      AccountCategory
-  symbol        String?         // Stock symbol (e.g., "2330.TW", "AAPL") or crypto symbol (e.g., "BTC")
-  quantity      Float?          @default(0) // For stocks/crypto
-  currentPrice  Float?          @default(0) // Current market price
-  currentValue  Float           @default(0) // Calculated: quantity * currentPrice
+  symbol        String?
+  quantity      Float?          @default(0)
+  currentPrice  Float?          @default(0)
+  currentValue  Float           @default(0)
   currency      Currency        @default(TWD)
   isApiConnected Boolean        @default(false)
   apiSource     String?
   apiKey        String?
   apiSecret     String?
-  monthlyDeductionAmount Float?     // Monthly deduction amount for liabilities
-  deductionDate Int?               // Day of month for automatic deduction (1-31)
-  deductFromAccountId String?      // Cash account to deduct from
+  monthlyDeductionAmount Float?
+  deductionDate Int?
+  deductFromAccountId String?
   isActive      Boolean         @default(true)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -67,6 +95,7 @@ model Account {
   transactions  Transaction[]
   loanPayments  Transaction[]   @relation("LoanPayments")
 
+  @@index([userId])
   @@index([type])
   @@index([category])
   @@index([isActive])
@@ -74,20 +103,24 @@ model Account {
 
 model Transaction {
   id          String          @id @default(cuid())
+  userId      String          // 🌟 新增：这笔交易属于哪个用户
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
   accountId   String
-  account     Account         @relation(fields: [accountId], references: [id])
+  account     Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   type        TransactionType
   amount      Float
-  quantity    Float?          // For stock/crypto transactions
-  price       Float?          // For stock/crypto transactions
+  quantity    Float?
+  price       Float?
   description String?
   date        DateTime        @default(now())
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  loanAccountId String?        // For auto-deduction: which cash account to deduct from
+  loanAccountId String?
   loanAccount   Account?       @relation("LoanPayments", fields: [loanAccountId], references: [id])
 
+  @@index([userId])
   @@index([accountId])
   @@index([type])
   @@index([date])
@@ -95,12 +128,17 @@ model Transaction {
 
 model AssetHistory {
   id              String   @id @default(cuid())
-  date            DateTime @unique
+  userId          String   // 🌟 新增：这个历史记录属于哪个用户
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date            DateTime
   totalAssets     Float
   totalLiabilities Float
   netWorth        Float
-  breakdown       String   // JSON string for detailed breakdown
+  breakdown       String
   createdAt       DateTime @default(now())
 
+  @@unique([userId, date])
+  @@index([userId])
   @@index([date])
 }

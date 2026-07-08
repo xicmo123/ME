@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { getUserIdFromRequest } from "@/lib/auth";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -9,13 +10,17 @@ declare global {
 const prisma = globalThis.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
+
   const today = new Date();
   const deductionDay = today.getDate();
 
   try {
     const liabilities = await prisma.account.findMany({
       where: {
+        userId,
         type: "LIABILITY",
         isActive: true,
         deductionDate: deductionDay,
@@ -50,6 +55,7 @@ export async function GET() {
 
         await tx.transaction.create({
           data: {
+            userId,                    // 🌟 新增
             accountId: updatedLiability.id,
             type: "AUTO_DEDUCTION",
             amount: deductionAmount,

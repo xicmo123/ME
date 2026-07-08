@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { getUserIdFromRequest } from "@/lib/auth";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -10,16 +11,16 @@ declare global {
 const prisma = globalThis.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
+
   try {
     const transactions = await prisma.transaction.findMany({
+      where: { userId },
       take: 20,
-      orderBy: {
-        date: "desc",
-      },
-      include: {
-        account: true,
-      },
+      orderBy: { date: "desc" },
+      include: { account: true },
     });
 
     return NextResponse.json(transactions);

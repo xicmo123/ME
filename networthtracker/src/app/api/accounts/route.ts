@@ -1,182 +1,157 @@
+// src/app/api/accounts/route.ts
 export const dynamic = "force-dynamic";
-import { randomUUID } from "crypto"
-import { NextResponse } from "next/server"
-import yahooFinance from "yahoo-finance2"
-import { PrismaClient } from "@prisma/client"
+import { randomUUID } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+import YahooFinance from "yahoo-finance2";
+import { PrismaClient } from "@prisma/client";
+import { getUserIdFromRequest } from "@/lib/auth";
 
 declare global {
   // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined
+  var prisma: PrismaClient | undefined;
 }
 
-const prisma = globalThis.prisma || new PrismaClient()
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma
+const prisma = globalThis.prisma || new PrismaClient();
+if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
 
-const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"]
-const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"]
+const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
+const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"];
 
 async function fetchMarketPrice(category: string, symbol: string) {
-  const yahoo = new yahooFinance()
+  const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
   if (category === "CRYPTO") {
-    const normalizedSymbol = symbol.toUpperCase()
+    const normalizedSymbol = symbol.toUpperCase();
     const cryptoResponse = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
-    )
+    );
 
-    if (!cryptoResponse.ok) {
-      throw new Error(`CoinGecko API returned ${cryptoResponse.status}`)
-    }
+    if (!cryptoResponse.ok) throw new Error(`CoinGecko API returned ${cryptoResponse.status}`);
 
-    const cryptoData = await cryptoResponse.json()
+    const cryptoData = await cryptoResponse.json();
     const usdPrice =
       normalizedSymbol === "BTC" || normalizedSymbol === "BITCOIN"
         ? Number(cryptoData.bitcoin?.usd || 0)
         : normalizedSymbol === "ETH" || normalizedSymbol === "ETHEREUM"
           ? Number(cryptoData.ethereum?.usd || 0)
-          : 0
+          : 0;
 
-    if (!usdPrice) {
-      throw new Error(`Unsupported or missing crypto price for ${symbol}`)
-    }
+    if (!usdPrice) throw new Error(`Unsupported or missing crypto price for ${symbol}`);
 
-    const usdToTwdResult = await yahoo.quote("TWD=X")
-    const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1)
-    return usdPrice * usdToTwdRate
+    const usdToTwdResult = await yahoo.quote("TWD=X");
+    const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1);
+    return usdPrice * usdToTwdRate;
   }
 
-  const quoteResult = await yahoo.quote(symbol)
-  const marketPrice = Number(quoteResult.regularMarketPrice || 0)
+  const quoteResult = await yahoo.quote(symbol);
+  const marketPrice = Number(quoteResult.regularMarketPrice || 0);
 
   if (category === "US_STOCK") {
-    const usdToTwdResult = await yahoo.quote("TWD=X")
-    const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1)
-    return marketPrice * usdToTwdRate
+    const usdToTwdResult = await yahoo.quote("TWD=X");
+    const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1);
+    return marketPrice * usdToTwdRate;
   }
 
-  return marketPrice
+  return marketPrice;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
+
   const accounts = await prisma.account.findMany({
-    where: {
-      isActive: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  })
+    where: { isActive: true, userId },
+    orderBy: { createdAt: "desc" },
+  });
 
-  return NextResponse.json(accounts)
+  return NextResponse.json(accounts);
 }
 
-export async function POST(request: Request) {
-  const body = await request.json().catch(() => null)
+export async function POST(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
 
+  const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
-    return NextResponse.json({ message: "Invalid JSON payload." }, { status: 400 })
+    return NextResponse.json({ message: "Invalid JSON payload." }, { status: 400 });
   }
 
-  const { name, type, category, symbol, quantity, currency, isApiConnected, apiSource, apiKey, apiSecret, monthlyDeductionAmount, deductionDate } = body as {
-    name?: string
-    type?: string
-    category?: string
-    symbol?: string
-    quantity?: number | string
-    currency?: string
-    isApiConnected?: boolean
-    apiSource?: string | null
-    apiKey?: string | null
-    apiSecret?: string | null
-    monthlyDeductionAmount?: number | string
-    deductionDate?: number | string
-    deductFromAccountId?: string | null
-  }
+  const {
+    name, type, category, symbol, quantity, currency,
+    isApiConnected, apiSource, apiKey, apiSecret,
+    monthlyDeductionAmount, deductionDate,
+  } = body as {
+    name?: string; type?: string; category?: string; symbol?: string;
+    quantity?: number | string; currency?: string; isApiConnected?: boolean;
+    apiSource?: string | null; apiKey?: string | null; apiSecret?: string | null;
+    monthlyDeductionAmount?: number | string; deductionDate?: number | string;
+  };
 
   if (!name || !type || !category || !currency) {
-    return NextResponse.json(
-      { message: "Please provide name, type, category, and currency." },
-      { status: 400 }
-    )
+    return NextResponse.json({ message: "Please provide name, type, category, and currency." }, { status: 400 });
   }
 
-  const isApiMode = Boolean(isApiConnected)
-  const trimmedSymbol = typeof symbol === "string" ? symbol.trim() : ""
-  const fallbackSymbol = (typeof apiSource === "string" ? apiSource.trim() : "") || "BITFINEX"
+  const isApiMode = Boolean(isApiConnected);
+  const trimmedSymbol = typeof symbol === "string" ? symbol.trim() : "";
+  const fallbackSymbol = (typeof apiSource === "string" ? apiSource.trim() : "") || "BITFINEX";
   const requiresSymbolValidation =
     (category === "CRYPTO" || category === "STOCK" || category === "TAIWAN_STOCK" || category === "US_STOCK") &&
-    !isApiMode &&
-    !trimmedSymbol
+    !isApiMode && !trimmedSymbol;
 
   if (requiresSymbolValidation) {
-    return NextResponse.json(
-      { message: "Stocks and crypto accounts require a symbol." },
-      { status: 400 }
-    )
+    return NextResponse.json({ message: "Stocks and crypto accounts require a symbol." }, { status: 400 });
   }
 
   const quantityValue =
-    quantity === undefined || quantity === null || quantity === ""
-      ? 0
-      : Number(quantity)
+    quantity === undefined || quantity === null || quantity === "" ? 0 : Number(quantity);
 
   if (!isApiMode && Number.isNaN(quantityValue)) {
-    return NextResponse.json(
-      { message: "Quantity must be a valid number." },
-      { status: 400 }
-    )
+    return NextResponse.json({ message: "Quantity must be a valid number." }, { status: 400 });
   }
 
-  let deductionAmountValue: number | null = null
-  let deductionDateValue: number | null = null
+  let deductionAmountValue: number | null = null;
+  let deductionDateValue: number | null = null;
 
   if (type === "LIABILITY") {
     deductionAmountValue =
       monthlyDeductionAmount === undefined || monthlyDeductionAmount === null || monthlyDeductionAmount === ""
-        ? null
-        : Number(monthlyDeductionAmount)
+        ? null : Number(monthlyDeductionAmount);
 
     deductionDateValue =
       deductionDate === undefined || deductionDate === null || deductionDate === ""
-        ? null
-        : Number(deductionDate)
+        ? null : Number(deductionDate);
 
     if (deductionAmountValue !== null && Number.isNaN(deductionAmountValue)) {
-      return NextResponse.json(
-        { message: "Monthly deduction amount must be a valid number." },
-        { status: 400 }
-      )
+      return NextResponse.json({ message: "Monthly deduction amount must be a valid number." }, { status: 400 });
     }
 
     if (deductionDateValue !== null && (!Number.isInteger(deductionDateValue) || deductionDateValue < 1 || deductionDateValue > 31)) {
-      return NextResponse.json(
-        { message: "Deduction date must be between 1 and 31." },
-        { status: 400 }
-      )
+      return NextResponse.json({ message: "Deduction date must be between 1 and 31." }, { status: 400 });
     }
   }
 
-  let currentPriceValue = 1
-  let currentValueValue = isApiMode ? 0 : quantityValue
+  let currentPriceValue = 1;
+  let currentValueValue = isApiMode ? 0 : quantityValue;
 
   if (categoriesRequiringSymbol.includes(category) && !isApiMode) {
     try {
-      const fetchedPrice = await fetchMarketPrice(category, trimmedSymbol)
-      currentPriceValue = Number(fetchedPrice || 0)
-      currentValueValue = quantityValue * currentPriceValue
+      const fetchedPrice = await fetchMarketPrice(category, trimmedSymbol);
+      currentPriceValue = Number(fetchedPrice || 0);
+      currentValueValue = quantityValue * currentPriceValue;
     } catch (error) {
-      console.error("Failed to fetch current market price for new account:", error)
-      currentPriceValue = 0
-      currentValueValue = 0
+      console.error("Failed to fetch current market price for new account:", error);
+      currentPriceValue = 0;
+      currentValueValue = 0;
     }
   } else if (fixedValueCategories.includes(category)) {
-    currentPriceValue = 1
-    currentValueValue = quantityValue
+    currentPriceValue = 1;
+    currentValueValue = quantityValue;
   }
 
   const account = await prisma.account.create({
     data: {
       id: randomUUID(),
+      userId,                    // 🌟 关键：绑定到登入用户
       name: name.trim(),
       type: type as any,
       category: category as any,
@@ -192,7 +167,7 @@ export async function POST(request: Request) {
       monthlyDeductionAmount: deductionAmountValue,
       deductionDate: deductionDateValue,
     },
-  })
+  });
 
-  return NextResponse.json(account, { status: 201 })
+  return NextResponse.json(account, { status: 201 });
 }
