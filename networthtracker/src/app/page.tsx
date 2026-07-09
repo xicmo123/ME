@@ -378,7 +378,9 @@ export default function HomePage() {
           <div className="p-3.5 mb-6 border-2 border-[#1C1F1A] dark:border-[#B8933C] rounded-full">
             <Lock className="h-6 w-6 text-[#1C1F1A] dark:text-[#B8933C]" />
           </div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">淨資產對帳單</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">
+            <span className={`font-normal italic ${textMuted}`}>Zeno</span> Worth
+          </h1>
           <p className={`text-[11px] font-semibold tracking-[0.25em] mb-8 mt-1 ${textMuted}`}>
             {authMode === "login" ? "SIGN IN · 登入帳號" : "REGISTER · 建立帳號"}
           </p>
@@ -423,7 +425,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between pb-3 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-3.5 w-3.5" style={{ color: gold }} />
-                <span className="font-display text-base font-semibold tracking-tight">Net Worth <span className={`font-normal italic ${textMuted}`}>Statement</span></span>
+                <span className="font-display text-base font-semibold tracking-tight"><span className={`font-normal italic ${textMuted}`}>Zeno</span> Worth</span>
               </div>
               <button onClick={toggleDarkMode} className={`p-2 rounded-lg ${textMuted} hover:text-[#B8933C] transition-colors`}>
                 {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
@@ -738,7 +740,7 @@ export default function HomePage() {
                 </button>
               </div>
             </div>
-            <p className={`text-center text-xs ${textMuted} pb-2`}>Net Worth Tracker · 版本 1.0</p>
+            <p className={`text-center text-xs ${textMuted} pb-2`}>Zeno Worth · 版本 1.0</p>
           </div>
         )}
       </div>
