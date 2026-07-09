@@ -36,8 +36,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "缺少必要參數" }, { status: 400 });
     }
     const nWorth = Number(netWorth);
-    const snapshotDate = new Date(date);
-    snapshotDate.setHours(0, 0, 0, 0);
+    // 與 /api/history/snapshot 對齊：以台北日期正規化，避免伺服器時區不同導致日期錯位
+    const twDateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(date));
+    const snapshotDate = new Date(`${twDateStr}T00:00:00.000Z`);
     const result = await prisma.assetHistory.upsert({
       where: { userId_date: { userId, date: snapshotDate } },
       update: { totalAssets: nWorth, totalLiabilities: 0, netWorth: nWorth, breakdown: "[]" },

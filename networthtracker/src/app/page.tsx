@@ -291,11 +291,21 @@ export default function HomePage() {
   // 指數以「視窗第一天」為 0% 基準，顯示整段真實走勢；缺行情的日子（假日）沿用前一天。
   // 你的淨值：第一筆真實資料出現前先當 0%（使用者同意 7/8 之前 0 沒關係），之後以第一筆為基準計算成長率。
   // 淨值可能為負，改用 |base| 當分母，語意為「相對起始規模的變化」，避免除到號會翻轉的基準。
-  const comparisonData = useMemo(() => {
-    if (!compareMode || chartData.length === 0) return [] as any[];
+  // 起始淨值太接近 0 時，百分比變化會被放大到失真（例如淨值從 -500 變 300 會顯示成幾百 %），
+  // 這種情況下改回傳空陣列，UI 顯示「起始淨值過低，無法以百分比比較」的提示。
+  const MIN_COMPARISON_BASE = 10000;
+  const comparisonBaseTooSmall = useMemo(() => {
+    if (!compareMode || chartData.length === 0) return false;
     const baseIdx = chartData.findIndex((p) => p.netWorth != null);
     const baseYou = baseIdx >= 0 ? (chartData[baseIdx].netWorth as number) : 0;
-    const denomYou = Math.max(Math.abs(baseYou), 1);
+    return Math.abs(baseYou) < MIN_COMPARISON_BASE;
+  }, [compareMode, chartData]);
+
+  const comparisonData = useMemo(() => {
+    if (!compareMode || chartData.length === 0 || comparisonBaseTooSmall) return [] as any[];
+    const baseIdx = chartData.findIndex((p) => p.netWorth != null);
+    const baseYou = baseIdx >= 0 ? (chartData[baseIdx].netWorth as number) : 0;
+    const denomYou = Math.abs(baseYou);
 
     const idxCarry: Record<string, number | null> = {};
     const idxBase: Record<string, number | null> = {};
@@ -656,6 +666,10 @@ export default function HomePage() {
                       <Area type="monotone" dataKey="netWorth" stroke={gold} strokeWidth={2} fillOpacity={1} fill="url(#chartGrad)" />
                     </AreaChart>
                   </ResponsiveContainer>
+                ) : mounted && compareMode && comparisonBaseTooSmall ? (
+                  <div className="h-full flex items-center justify-center">
+                    <p className={`text-sm ${textMuted}`}>起始淨值過低，無法以百分比比較走勢</p>
+                  </div>
                 ) : (
                   <div className="h-full flex items-center justify-center">
                     <p className={`text-sm ${textMuted}`}>尚無歷史資料</p>
