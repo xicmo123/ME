@@ -379,7 +379,7 @@ export default function HomePage() {
             <Lock className="h-6 w-6 text-[#1C1F1A] dark:text-[#B8933C]" />
           </div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">
-            <span className={`font-normal italic ${textMuted}`}>Zeno</span> Worth
+            Zeno <span className={`font-normal italic ${textMuted}`}>Worth</span>
           </h1>
           <p className={`text-[11px] font-semibold tracking-[0.25em] mb-8 mt-1 ${textMuted}`}>
             {authMode === "login" ? "SIGN IN · 登入帳號" : "REGISTER · 建立帳號"}
@@ -425,7 +425,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between pb-3 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-3.5 w-3.5" style={{ color: gold }} />
-                <span className="font-display text-base font-semibold tracking-tight"><span className={`font-normal italic ${textMuted}`}>Zeno</span> Worth</span>
+                <span className="font-display text-base font-semibold tracking-tight">Zeno <span className={`font-normal italic ${textMuted}`}>Worth</span></span>
               </div>
               <button onClick={toggleDarkMode} className={`p-2 rounded-lg ${textMuted} hover:text-[#B8933C] transition-colors`}>
                 {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
