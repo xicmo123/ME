@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Pencil, RefreshCw, Trash2, Plus, X, Lock, Sun, Moon, LogOut, Wallet, Sparkles, Eye, EyeOff, LayoutDashboard, PieChart, TrendingUp, Settings, ChevronRight, AlertTriangle } from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const typeOptions = [{ value: "ASSET", label: "資產" }, { value: "LIABILITY", label: "負債" }];
 const categoryOptions = [
@@ -20,6 +20,12 @@ const amountInputCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABL
 const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "0", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", monthlyDeductionAmount: "", deductionDate: "" };
 
 type Tab = "overview" | "assets" | "trends" | "settings";
+
+// 基準指數：實際行情由 /api/benchmark 透過 Yahoo Finance 抓取（0050.TW、^GSPC）。
+const BENCHMARKS: Record<string, { label: string; color: string }> = {
+  tw0050: { label: "0050", color: "#4F7B5E" },
+  sp500: { label: "S&P 500", color: "#5A7DA0" },
+};
 
 const FontStyles = () => (
   <style jsx global>{`
@@ -47,6 +53,9 @@ export default function HomePage() {
   const [showForm, setShowForm] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<"day" | "month" | "year">("day");
+  const [activeBenchmarks, setActiveBenchmarks] = useState<string[]>([]);
+  const [benchmarkData, setBenchmarkData] = useState<Record<string, { date: string; level: number }[]>>({});
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
@@ -89,7 +98,12 @@ export default function HomePage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      void (async () => { await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchExchangeRate(), fetchGoals()]); })();
+      void (async () => {
+        await Promise.allSettled([fetchAccounts(), fetchTransactions(), fetchExchangeRate(), fetchGoals()]);
+        // 每次進入 App 都記錄「今天」的淨資產快照，讓歷史逐日累積（否則走勢圖只有今天一個點）
+        await fetch("/api/history/snapshot").catch(() => {});
+        await fetchHistory();
+      })();
     }
   }, [isAuthenticated]);
 
@@ -177,7 +191,19 @@ export default function HomePage() {
 
   async function handleSyncPrices() {
     setSyncing(true);
-    try { await fetch("/api/test-fetch-prices"); await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchExchangeRate()]); } catch (e) {} finally { setSyncing(false); }
+    try {
+      await fetch("/api/test-fetch-prices");
+      await fetch("/api/history/snapshot").catch(() => {}); // 同步後把最新淨值寫入今天的快照
+      await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchExchangeRate()]);
+    } catch (e) {} finally { setSyncing(false); }
+  }
+
+  async function fetchBenchmarks() {
+    setBenchmarkLoading(true);
+    try {
+      const res = await fetch("/api/benchmark?days=365", { cache: "no-store" });
+      if (res.ok) setBenchmarkData(await res.json());
+    } catch (e) {} finally { setBenchmarkLoading(false); }
   }
 
   async function handleHistorySubmit(e: FormEvent) {
@@ -194,66 +220,110 @@ export default function HomePage() {
   function formatCompactNumber(value: number) { return Intl.NumberFormat("zh-TW", { notation: "compact", maximumFractionDigits: 1 }).format(value); }
 
   function buildChartSeries(historyPoints: any[], selectedTimeframe: string, currentNetWorth: number) {
-    const sorted = [...historyPoints].filter((p) => Number.isFinite(Number(p.netWorth))).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const now = new Date();
     const getTWDateStr = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+
+    // 以「台北日期」為 key 建立歷史對照表；今天永遠使用即時淨資產
     const historyMap = new Map<string, number>();
-    for (const p of sorted) historyMap.set(getTWDateStr(new Date(p.date)), p.netWorth);
-    historyMap.set(getTWDateStr(now), currentNetWorth);
-    const startDate = new Date(now.getTime());
-    let stepDays = 1;
-    if (selectedTimeframe === "day") { startDate.setDate(now.getDate() - 13); stepDays = 1; }
-    else if (selectedTimeframe === "month") { startDate.setMonth(now.getMonth() - 6); stepDays = 7; }
-    else { startDate.setFullYear(now.getFullYear() - 5); stepDays = 30; }
-    startDate.setHours(0, 0, 0, 0);
-    const result: { label: string; netWorth: number }[] = [];
+    for (const p of historyPoints) {
+      const v = Number(p.netWorth);
+      if (Number.isFinite(v)) historyMap.set(getTWDateStr(new Date(p.date)), v);
+    }
+    const todayStr = getTWDateStr(now);
+    historyMap.set(todayStr, currentNetWorth);
+
+    // 每個時間範圍都是「每日一個點」，含今天
+    const windowDays = selectedTimeframe === "day" ? 14 : selectedTimeframe === "month" ? 180 : 365;
+
+    // 產生從 (今天 - windowDays + 1) 到今天、每天一個台北日期字串
+    const days: string[] = [];
+    for (let i = windowDays - 1; i >= 0; i--) {
+      const d = new Date(now.getTime());
+      d.setDate(now.getDate() - i);
+      days.push(getTWDateStr(d));
+    }
+
+    // 第一筆真實資料出現前不畫線（netWorth = null 產生斷點），避免捏造「最早紀錄以前」的假資料；
+    // 第一筆之後若有空缺則用前一天的值往後帶。X 軸仍涵蓋整個視窗（14 / 180 / 365 個位置）。
+    let started = false;
     let lastKnown = 0;
 
-    if (selectedTimeframe === "day") {
-      // 兩周：只取 7 個點（每兩天一個點），標籤顯示 月/日
-      for (let i = 13; i >= 0; i -= 2) {
-        const d = new Date(now.getTime()); d.setDate(now.getDate() - i);
-        const dateStr = getTWDateStr(d);
-        if (historyMap.has(dateStr)) lastKnown = historyMap.get(dateStr)!;
-        result.push({ label: `${d.getMonth() + 1}/${d.getDate()}`, netWorth: lastKnown });
+    const seenMonths = new Set<string>();
+    const result: { label: string; date: string; netWorth: number | null }[] = [];
+    for (let idx = 0; idx < days.length; idx++) {
+      const dateStr = days[idx];
+      if (historyMap.has(dateStr)) { lastKnown = historyMap.get(dateStr)!; started = true; }
+
+      // X 軸 label：兩週每兩天顯示 M/D；六個月／一年每個月首次出現顯示 N月
+      const [y, m, dd] = dateStr.split("-");
+      let label = "";
+      if (selectedTimeframe === "day") {
+        if ((days.length - 1 - idx) % 2 === 0) label = `${Number(m)}/${Number(dd)}`;
+      } else {
+        const monthKey = `${y}-${m}`;
+        if (!seenMonths.has(monthKey)) { seenMonths.add(monthKey); label = `${Number(m)}月`; }
       }
-    } else if (selectedTimeframe === "month") {
-      // 六個月：每月取 1 個點（月初），顯示 N月
-      for (let m = 5; m >= 0; m--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
-        const dateStr = getTWDateStr(d);
-        // 找這個月最近的有資料的一天
-        let val = lastKnown;
-        for (let day = 0; day <= 31; day++) {
-          const check = new Date(d.getFullYear(), d.getMonth(), 1 + day);
-          if (check.getMonth() !== d.getMonth()) break;
-          const s = getTWDateStr(check);
-          if (historyMap.has(s)) val = historyMap.get(s)!;
-        }
-        lastKnown = val;
-        result.push({ label: `${d.getMonth() + 1}月`, netWorth: lastKnown });
-      }
-      // 加上今天
-      result.push({ label: "今", netWorth: currentNetWorth });
-    } else {
-      // 五年：每年取 1 個點，顯示 YYYY
-      const startYear = now.getFullYear() - 4;
-      for (let y = startYear; y <= now.getFullYear(); y++) {
-        const d = new Date(y, 0, 1);
-        let val = lastKnown;
-        for (const [k, v] of historyMap) {
-          if (k.startsWith(`${y}-`)) { val = v; }
-        }
-        lastKnown = val;
-        result.push({ label: `${y}`, netWorth: lastKnown });
-      }
-      result.push({ label: "今", netWorth: currentNetWorth });
+
+      result.push({ label, date: dateStr, netWorth: started ? lastKnown : null });
     }
 
     return result;
   }
 
   const chartData = useMemo(() => buildChartSeries(history, timeframe, summary.netWorth), [history, timeframe, summary.netWorth]);
+
+  const compareMode = activeBenchmarks.length > 0;
+
+  // 進入比較模式且尚未抓過就自動抓一次（一年份，各時間範圍共用後再依視窗切）
+  useEffect(() => {
+    if (compareMode && Object.keys(benchmarkData).length === 0 && !benchmarkLoading) void fetchBenchmarks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareMode]);
+
+  // 指數：date -> 收盤價 的對照表
+  const benchLevelMaps = useMemo(() => {
+    const maps: Record<string, Map<string, number>> = {};
+    for (const k of Object.keys(benchmarkData)) maps[k] = new Map((benchmarkData[k] || []).map((p) => [p.date, p.level]));
+    return maps;
+  }, [benchmarkData]);
+
+  // 成長率比較：與趨勢圖共用同一組每日點位（14 / 180 / 365）。
+  // 指數以「視窗第一天」為 0% 基準，顯示整段真實走勢；缺行情的日子（假日）沿用前一天。
+  // 你的淨值：第一筆真實資料出現前先當 0%（使用者同意 7/8 之前 0 沒關係），之後以第一筆為基準計算成長率。
+  // 淨值可能為負，改用 |base| 當分母，語意為「相對起始規模的變化」，避免除到號會翻轉的基準。
+  const comparisonData = useMemo(() => {
+    if (!compareMode || chartData.length === 0) return [] as any[];
+    const baseIdx = chartData.findIndex((p) => p.netWorth != null);
+    const baseYou = baseIdx >= 0 ? (chartData[baseIdx].netWorth as number) : 0;
+    const denomYou = Math.max(Math.abs(baseYou), 1);
+
+    const idxCarry: Record<string, number | null> = {};
+    const idxBase: Record<string, number | null> = {};
+    for (const k of activeBenchmarks) { idxCarry[k] = null; idxBase[k] = null; }
+
+    return chartData.map((pt, i) => {
+      const row: any = { label: pt.label, date: pt.date };
+
+      // 你的成長率
+      if (baseIdx < 0 || i < baseIdx || pt.netWorth == null) row.you = 0;
+      else row.you = ((pt.netWorth - baseYou) / denomYou) * 100;
+
+      // 各指數成長率（實際行情、視窗首日為基準、缺資料沿用前一天）
+      for (const k of activeBenchmarks) {
+        const lvl = benchLevelMaps[k]?.get(pt.date);
+        if (lvl != null) idxCarry[k] = lvl;
+        const cur = idxCarry[k];
+        if (cur != null && idxBase[k] == null) idxBase[k] = cur;
+        row[k] = cur != null && idxBase[k] ? (cur / (idxBase[k] as number) - 1) * 100 : null;
+      }
+      return row;
+    });
+  }, [compareMode, chartData, activeBenchmarks, benchLevelMaps]);
+
+  function formatPct(v: number) { return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`; }
+  function toggleBenchmark(k: string) {
+    setActiveBenchmarks((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+  }
 
   const accountGroups = [
     { title: "流動資金", categories: ["BANK_ACCOUNT", "CASH"] },
@@ -528,13 +598,50 @@ export default function HomePage() {
             <div className={`${surface} rounded-xl p-1 flex gap-1`}>
               {(["day", "month", "year"] as const).map(item => (
                 <button key={item} onClick={() => setTimeframe(item)} className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${timeframe === item ? "bg-[#1C1F1A] dark:bg-[#B8933C] text-white dark:text-black" : textMuted}`}>
-                  {item === "day" ? "兩周" : item === "month" ? "六個月" : "五年"}
+                  {item === "day" ? "兩週" : item === "month" ? "六個月" : "一年"}
                 </button>
               ))}
             </div>
+
+            {/* 基準比較：疊上大盤指數的成長率 */}
+            <div className="flex items-center gap-2 px-1">
+              <span className={`text-[10px] font-bold tracking-[0.15em] uppercase ${textMuted}`}>對比大盤</span>
+              {Object.entries(BENCHMARKS).map(([key, cfg]) => {
+                const on = activeBenchmarks.includes(key);
+                return (
+                  <button key={key} onClick={() => toggleBenchmark(key)} className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-all ${on ? "text-white dark:text-black" : `${textMuted} border-black/10 dark:border-white/10`}`} style={on ? { background: cfg.color, borderColor: cfg.color } : undefined}>
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: on ? "currentColor" : cfg.color }} />
+                    {cfg.label}
+                  </button>
+                );
+              })}
+            </div>
+
             <div className={`${surface} rounded-2xl p-4`}>
+              {compareMode && (
+                <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-3 pb-3 border-b border-black/[0.06] dark:border-white/[0.06]">
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: gold }} />你的淨值</span>
+                  {activeBenchmarks.map((k) => (
+                    <span key={k} className="flex items-center gap-1.5 text-[11px] font-semibold"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: BENCHMARKS[k].color }} />{BENCHMARKS[k].label}</span>
+                  ))}
+                  <span className={`ml-auto text-[10px] ${textMuted}`}>{benchmarkLoading ? "抓取行情中…" : "成長率 · 以區間首日為 0%"}</span>
+                </div>
+              )}
               <div className="h-[240px]">
-                {mounted && chartData.length > 0 ? (
+                {mounted && compareMode && comparisonData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={comparisonData} margin={{ top: 10, right: 6, left: 0, bottom: 0 }}>
+                      <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={(v) => `${Math.round(v)}%`} width={44} />
+                      <ReferenceLine y={0} stroke="#8A8F82" strokeDasharray="3 3" strokeOpacity={0.5} />
+                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(_l, payload) => (payload && payload[0]?.payload?.date) || ""} formatter={(val, name) => [formatPct(Number(val)), name === "you" ? "你的淨值" : BENCHMARKS[String(name)]?.label ?? String(name)]} />
+                      <Line type="monotone" dataKey="you" stroke={gold} strokeWidth={2.5} dot={false} />
+                      {activeBenchmarks.map((k) => (
+                        <Line key={k} type="monotone" dataKey={k} stroke={BENCHMARKS[k].color} strokeWidth={2} dot={false} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : mounted && chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 10, right: 6, left: 0, bottom: 0 }}>
                       <defs>
@@ -545,7 +652,7 @@ export default function HomePage() {
                       </defs>
                       <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]} />
+                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(_l, payload) => (payload && payload[0]?.payload?.date) || ""} formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]} />
                       <Area type="monotone" dataKey="netWorth" stroke={gold} strokeWidth={2} fillOpacity={1} fill="url(#chartGrad)" />
                     </AreaChart>
                   </ResponsiveContainer>
