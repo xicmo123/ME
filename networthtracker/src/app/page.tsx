@@ -272,6 +272,11 @@ export default function HomePage() {
 
   const chartData = useMemo(() => buildChartSeries(history, timeframe, summary.netWorth), [history, timeframe, summary.netWorth]);
 
+  // X 軸改用 date（保證每個點唯一）當 dataKey，避免大量重複的空字串 label 讓 recharts 的
+  // hover/tooltip 索引對不準；稀疏標籤改由 tickFormatter 查表顯示。
+  const labelByDate = useMemo(() => new Map(chartData.map((p) => [p.date, p.label])), [chartData]);
+  const xAxisTickFormatter = (v: string) => labelByDate.get(v) ?? "";
+
   const compareMode = activeBenchmarks.length > 0;
 
   // 進入比較模式且尚未抓過就自動抓一次（一年份，各時間範圍共用後再依視窗切）
@@ -641,10 +646,10 @@ export default function HomePage() {
                 {mounted && compareMode && comparisonData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={comparisonData} margin={{ top: 10, right: 6, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={(v) => `${Math.round(v)}%`} width={44} />
                       <ReferenceLine y={0} stroke="#8A8F82" strokeDasharray="3 3" strokeOpacity={0.5} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(_l, payload) => (payload && payload[0]?.payload?.date) || ""} formatter={(val, name) => [formatPct(Number(val)), name === "you" ? "你的淨值" : BENCHMARKS[String(name)]?.label ?? String(name)]} />
+                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val, name) => [formatPct(Number(val)), name === "you" ? "你的淨值" : BENCHMARKS[String(name)]?.label ?? String(name)]} />
                       <Line type="monotone" dataKey="you" stroke={gold} strokeWidth={2.5} dot={false} />
                       {activeBenchmarks.map((k) => (
                         <Line key={k} type="monotone" dataKey={k} stroke={BENCHMARKS[k].color} strokeWidth={2} dot={false} />
@@ -660,9 +665,9 @@ export default function HomePage() {
                           <stop offset="95%" stopColor={gold} stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(_l, payload) => (payload && payload[0]?.payload?.date) || ""} formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]} />
+                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]} />
                       <Area type="monotone" dataKey="netWorth" stroke={gold} strokeWidth={2} fillOpacity={1} fill="url(#chartGrad)" />
                     </AreaChart>
                   </ResponsiveContainer>
