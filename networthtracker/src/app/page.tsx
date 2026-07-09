@@ -243,13 +243,13 @@ export default function HomePage() {
       days.push(getTWDateStr(d));
     }
 
-    // 第一筆真實資料出現前不畫線（netWorth = null 產生斷點），避免捏造「最早紀錄以前」的假資料；
+    // 第一筆真實資料出現前以 0 呈現，避免圖表出現斷點看起來像資料遺失；
     // 第一筆之後若有空缺則用前一天的值往後帶。X 軸仍涵蓋整個視窗（14 / 180 / 365 個位置）。
     let started = false;
     let lastKnown = 0;
 
     const seenMonths = new Set<string>();
-    const result: { label: string; date: string; netWorth: number | null }[] = [];
+    const result: { label: string; date: string; netWorth: number; started: boolean }[] = [];
     for (let idx = 0; idx < days.length; idx++) {
       const dateStr = days[idx];
       if (historyMap.has(dateStr)) { lastKnown = historyMap.get(dateStr)!; started = true; }
@@ -264,7 +264,7 @@ export default function HomePage() {
         if (!seenMonths.has(monthKey)) { seenMonths.add(monthKey); label = `${Number(m)}月`; }
       }
 
-      result.push({ label, date: dateStr, netWorth: started ? lastKnown : null });
+      result.push({ label, date: dateStr, netWorth: started ? lastKnown : 0, started });
     }
 
     return result;
@@ -296,15 +296,15 @@ export default function HomePage() {
   const MIN_COMPARISON_BASE = 10000;
   const comparisonBaseTooSmall = useMemo(() => {
     if (!compareMode || chartData.length === 0) return false;
-    const baseIdx = chartData.findIndex((p) => p.netWorth != null);
-    const baseYou = baseIdx >= 0 ? (chartData[baseIdx].netWorth as number) : 0;
+    const baseIdx = chartData.findIndex((p) => p.started);
+    const baseYou = baseIdx >= 0 ? chartData[baseIdx].netWorth : 0;
     return Math.abs(baseYou) < MIN_COMPARISON_BASE;
   }, [compareMode, chartData]);
 
   const comparisonData = useMemo(() => {
     if (!compareMode || chartData.length === 0 || comparisonBaseTooSmall) return [] as any[];
-    const baseIdx = chartData.findIndex((p) => p.netWorth != null);
-    const baseYou = baseIdx >= 0 ? (chartData[baseIdx].netWorth as number) : 0;
+    const baseIdx = chartData.findIndex((p) => p.started);
+    const baseYou = baseIdx >= 0 ? chartData[baseIdx].netWorth : 0;
     const denomYou = Math.abs(baseYou);
 
     const idxCarry: Record<string, number | null> = {};
@@ -315,7 +315,7 @@ export default function HomePage() {
       const row: any = { label: pt.label, date: pt.date };
 
       // 你的成長率
-      if (baseIdx < 0 || i < baseIdx || pt.netWorth == null) row.you = 0;
+      if (baseIdx < 0 || i < baseIdx) row.you = 0;
       else row.you = ((pt.netWorth - baseYou) / denomYou) * 100;
 
       // 各指數成長率（實際行情、視窗首日為基準、缺資料沿用前一天）
