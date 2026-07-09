@@ -19,10 +19,11 @@ export async function GET(request: NextRequest) {
     const payload = jwt.default.verify(token, process.env.JWT_SECRET || "fallback_secret_change_this") as { userId: string };
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { id: true, email: true, emailVerified: true, createdAt: true },
+      select: { id: true, email: true, emailVerified: true, createdAt: true, googleId: true, passwordHash: true },
     });
     if (!user) return NextResponse.json({ user: null }, { status: 401 });
-    return NextResponse.json({ user });
+    const { googleId, passwordHash, ...rest } = user;
+    return NextResponse.json({ user: { ...rest, hasGoogle: !!googleId, hasPassword: !!passwordHash } });
   } catch {
     return NextResponse.json({ user: null }, { status: 401 });
   }

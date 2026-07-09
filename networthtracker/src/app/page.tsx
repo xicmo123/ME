@@ -42,6 +42,15 @@ const FontStyles = () => (
   `}</style>
 );
 
+const GoogleIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z" />
+    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.9 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 15.6 3 8.4 7.8 6.3 14.7z" />
+    <path fill="#4CAF50" d="M24 45c5.4 0 10.3-2.1 14-5.5l-6.5-5.4c-2 1.6-4.6 2.9-7.5 2.9-5.3 0-9.7-3.4-11.3-8l-6.6 5.1C9.6 40.2 16.3 45 24 45z" />
+    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4 5.5l6.5 5.4C39.9 37.4 43 31.4 43 24c0-1.2-.1-2.4-.4-3.5z" />
+  </svg>
+);
+
 export default function HomePage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [formData, setFormData] = useState(defaultForm);
@@ -72,9 +81,12 @@ export default function HomePage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ email: string; hasGoogle: boolean; hasPassword: boolean } | null>(null);
+  const [googleUnlinking, setGoogleUnlinking] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -93,7 +105,21 @@ export default function HomePage() {
     setMounted(true);
     const saved = localStorage.getItem("networth-dark-mode");
     if (saved === "true") { setIsDarkMode(true); document.documentElement.classList.add("dark"); }
-    fetch("/api/auth").then(res => { if (res.ok) setIsAuthenticated(true); }).catch(() => {});
+
+    // Google OAuth 回跳可能帶著錯誤訊息或成功綁定的提示，讀完就清掉網址參數
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get("authError");
+    const linked = params.get("linked");
+    if (oauthError) setAuthError(oauthError);
+    if (oauthError || linked) window.history.replaceState({}, "", window.location.pathname);
+
+    fetch("/api/auth").then(async (res) => {
+      if (res.ok) {
+        const data = await res.json();
+        setIsAuthenticated(true);
+        setCurrentUser(data.user);
+      }
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -117,8 +143,18 @@ export default function HomePage() {
   const handleLogout = async () => {
     await fetch("/api/auth", { method: "DELETE" });
     setIsAuthenticated(false); setAccounts([]); setHistory([]);
-    setAuthEmail(""); setAuthPassword("");
+    setAuthEmail(""); setAuthPassword(""); setCurrentUser(null);
   };
+
+  async function handleGoogleUnlink() {
+    setGoogleUnlinking(true);
+    try {
+      const res = await fetch("/api/auth/google", { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setCurrentUser((u) => (u ? { ...u, hasGoogle: false } : u));
+      else alert(data.message || "取消綁定失敗");
+    } catch (e) {} finally { setGoogleUnlinking(false); }
+  }
 
   const handleDeleteAccount = async () => {
     setDeletingAccount(true);
@@ -133,7 +169,11 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: authMode, email: authEmail, password: authPassword }) });
       const data = await res.json();
-      if (res.ok) { setIsAuthenticated(true); } else { setAuthError(data.message || "發生錯誤"); }
+      if (res.ok) {
+        setIsAuthenticated(true);
+        const meRes = await fetch("/api/auth");
+        if (meRes.ok) setCurrentUser((await meRes.json()).user);
+      } else { setAuthError(data.message || "發生錯誤"); }
     } catch { setAuthError("網路錯誤，請稍後再試"); } finally { setAuthLoading(false); }
   }
 
@@ -391,13 +431,30 @@ export default function HomePage() {
             </div>
             <div>
               <label className={`block text-xs mb-2 ${sectionLabel}`}>密碼{authMode === "register" ? "（至少 8 字元）" : ""}</label>
-              <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" className={inputCls} required minLength={authMode === "register" ? 8 : 1} />
+              <div className="relative">
+                <input type={showAuthPassword ? "text" : "password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" className={`${inputCls} pr-9`} required minLength={authMode === "register" ? 8 : 1} />
+                <button type="button" onClick={() => setShowAuthPassword(!showAuthPassword)} tabIndex={-1} className={`absolute right-0 top-1/2 -translate-y-1/2 p-1 ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                  {showAuthPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             {authError && <p className="text-sm font-medium text-[#A24936] bg-[#A24936]/8 p-3 rounded-lg text-center">{authError}</p>}
             <button type="submit" disabled={authLoading} className={`mt-2 ${btnPrimary}`}>
               {authLoading ? "處理中…" : authMode === "login" ? "登入" : "建立帳號"}
             </button>
           </form>
+
+          <div className="w-full flex items-center gap-3 my-5">
+            <div className="flex-1 h-px bg-black/10 dark:bg-white/10" />
+            <span className={`text-[10px] ${textMuted}`}>或</span>
+            <div className="flex-1 h-px bg-black/10 dark:bg-white/10" />
+          </div>
+
+          <a href="/api/auth/google" className={`w-full py-3 flex items-center justify-center gap-2.5 text-sm font-semibold rounded-lg border border-black/15 dark:border-white/15 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${textPrimary}`}>
+            <GoogleIcon className="h-4 w-4" />
+            使用 Google {authMode === "login" ? "登入" : "註冊"}
+          </a>
+
           <button onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }} className={`mt-6 text-xs ${textMuted} hover:text-[#B8933C] transition-colors`}>
             {authMode === "login" ? "還沒有帳號？ 立即註冊" : "已有帳號？ 返回登入"}
           </button>
@@ -729,6 +786,28 @@ export default function HomePage() {
               <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
                 <p className={sectionLabel}>帳號</p>
               </div>
+              {currentUser && (
+                <div className="flex items-center justify-between p-4 border-b border-black/[0.06] dark:border-white/[0.06]">
+                  <div className="flex items-center gap-3">
+                    <GoogleIcon className="h-4 w-4" />
+                    <div>
+                      <span className="text-sm font-medium block">Google 帳號</span>
+                      <span className={`text-xs ${textMuted}`}>{currentUser.hasGoogle ? "已綁定" : "尚未綁定"}</span>
+                    </div>
+                  </div>
+                  {currentUser.hasGoogle ? (
+                    currentUser.hasPassword ? (
+                      <button onClick={handleGoogleUnlink} disabled={googleUnlinking} className={`text-xs font-semibold ${textMuted} hover:text-[#A24936] transition-colors`}>
+                        {googleUnlinking ? "處理中…" : "取消綁定"}
+                      </button>
+                    ) : (
+                      <span className={`text-xs ${textMuted}`}>✓</span>
+                    )
+                  ) : (
+                    <a href="/api/auth/google" className="text-xs font-semibold" style={{ color: gold }}>綁定</a>
+                  )}
+                </div>
+              )}
               <button onClick={handleLogout} className="w-full flex items-center p-4 gap-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
                 <LogOut className="h-4 w-4 text-[#A24936]" />
                 <span className="text-sm font-medium text-[#A24936]">登出</span>
