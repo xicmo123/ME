@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Pencil, RefreshCw, Trash2, Plus, X, Lock, Sun, Moon, LogOut, Wallet, Sparkles, Eye, EyeOff, LayoutDashboard, PieChart, TrendingUp, Settings, ChevronRight, AlertTriangle } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Lock, Sun, Moon, LogOut, Wallet, Sparkles, Eye, EyeOff, LayoutDashboard, PieChart, TrendingUp, Settings, ChevronRight, AlertTriangle, Save } from "lucide-react";
 import { Area, AreaChart, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const typeOptions = [{ value: "ASSET", label: "資產" }, { value: "LIABILITY", label: "負債" }];
@@ -39,6 +39,32 @@ const FontStyles = () => (
     }
     html { -webkit-tap-highlight-color: transparent; }
     * { -webkit-font-smoothing: antialiased; }
+
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+    .pixel-mode { image-rendering: pixelated; }
+    .pixel-mode, .pixel-mode input, .pixel-mode select, .pixel-mode button, .pixel-mode textarea, .pixel-mode p, .pixel-mode span, .pixel-mode div {
+      font-family: 'VT323', monospace !important;
+      font-size: 1.2em;
+      letter-spacing: 0.02em;
+    }
+    .pixel-mode .font-display {
+      font-family: 'Press Start 2P', monospace !important;
+      font-size: 0.62em !important;
+      letter-spacing: 0 !important;
+      line-height: 1.8 !important;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.3);
+    }
+    .pixel-mode .font-mono-ledger { font-family: 'VT323', monospace !important; font-size: 1.2em; }
+    .pixel-mode [class*="rounded"] { border-radius: 0 !important; }
+    .pixel-mode [class*="border"] { border-width: 3px !important; border-style: solid !important; }
+    .pixel-mode [class*="rounded-2xl"]:not([class*="border-dashed"]), .pixel-mode [class*="rounded-xl"]:not([class*="border-dashed"]) {
+      box-shadow: 5px 5px 0 rgba(0,0,0,0.45) !important;
+    }
+    .pixel-mode button, .pixel-mode a { text-transform: none; }
+    .pixel-mode button:active { transform: translate(2px, 2px); }
+    .dark .pixel-mode [class*="border-[#1C1F1A]"] { border-color: #9BBC0F !important; }
+    .pixel-mode [class*="border-[#B8933C]"] { border-color: #0F380F !important; }
+    .dark .pixel-mode [class*="border-[#B8933C]"] { border-color: #9BBC0F !important; }
   `}</style>
 );
 
@@ -67,6 +93,7 @@ export default function HomePage() {
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [uiStyle, setUiStyle] = useState<"simple" | "pixel">("simple");
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [showHistoryForm, setShowHistoryForm] = useState(false);
   const [historyFormData, setHistoryFormData] = useState({ date: "", netWorth: "" });
@@ -79,6 +106,9 @@ export default function HomePage() {
   const [hideBalance, setHideBalance] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [toasts, setToasts] = useState<{ id: number; message: string; kind: "success" | "error" }[]>([]);
+  const [itemDeleteTarget, setItemDeleteTarget] = useState<{ kind: "account" | "goal"; id: string; name: string } | null>(null);
+  const [itemDeleting, setItemDeleting] = useState(false);
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ email: string; hasGoogle: boolean; hasPassword: boolean } | null>(null);
@@ -105,6 +135,8 @@ export default function HomePage() {
     setMounted(true);
     const saved = localStorage.getItem("networth-dark-mode");
     if (saved === "true") { setIsDarkMode(true); document.documentElement.classList.add("dark"); }
+    const savedStyle = localStorage.getItem("networth-ui-style");
+    if (savedStyle === "pixel" || savedStyle === "simple") setUiStyle(savedStyle);
 
     // Google OAuth 回跳可能帶著錯誤訊息或成功綁定的提示，讀完就清掉網址參數
     const params = new URLSearchParams(window.location.search);
@@ -133,6 +165,11 @@ export default function HomePage() {
     }
   }, [isAuthenticated]);
 
+  function handleSaveUiStyle() {
+    localStorage.setItem("networth-ui-style", uiStyle);
+    showToast(uiStyle === "pixel" ? "已儲存為像素風" : "已儲存為簡約風");
+  }
+
   const toggleDarkMode = () => {
     const next = !isDarkMode;
     setIsDarkMode(next);
@@ -154,6 +191,12 @@ export default function HomePage() {
       if (res.ok) setCurrentUser((u) => (u ? { ...u, hasGoogle: false } : u));
       else alert(data.message || "取消綁定失敗");
     } catch (e) {} finally { setGoogleUnlinking(false); }
+  }
+
+  function showToast(message: string, kind: "success" | "error" = "success") {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, message, kind }]);
+    setTimeout(() => setToasts((t) => t.filter((toast) => toast.id !== id)), 2800);
   }
 
   const handleDeleteAccount = async () => {
@@ -195,13 +238,14 @@ export default function HomePage() {
       setShowGoalForm(false); setEditingGoal(null);
       setGoalForm({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" });
       await fetchGoals();
+      showToast(editingGoal ? "目標已更新" : "目標已新增");
+    } else {
+      showToast("儲存目標失敗，請再試一次", "error");
     }
   }
 
-  async function handleDeleteGoal(id: string) {
-    if (!window.confirm("確定要刪除這個目標嗎？")) return;
-    await fetch(`/api/goals?id=${id}`, { method: "DELETE" });
-    await fetchGoals();
+  async function handleDeleteGoal(id: string, name: string) {
+    setItemDeleteTarget({ kind: "goal", id, name });
   }
 
   function resetForm() { setFormData(defaultForm); setEditingAccountId(null); setShowForm(false); }
@@ -213,20 +257,48 @@ export default function HomePage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!formData.name.trim() || !formData.type || !formData.category) return setError("請填寫完整資訊");
-    const payload = { ...formData, quantity: isCryptoApiMode ? 0 : Number(formData.quantity || 0), symbol: isCryptoApiMode ? formData.apiSource : formData.symbol || null, monthlyDeductionAmount: Number(formData.monthlyDeductionAmount || 0), deductionDate: Number(formData.deductionDate || 0) };
+    const missing: string[] = [];
+    if (!formData.name.trim()) missing.push("名稱");
+    if (!formData.type) missing.push("類型");
+    if (!formData.category) missing.push("類別");
+    if (requiresSymbol && !formData.symbol.trim()) missing.push("代號");
+    if (!showApiFields && formData.quantity.trim() === "") missing.push(usesAmountInput ? "總金額" : "持有股數");
+    if (isCryptoApiMode) {
+      if (!formData.apiKey.trim()) missing.push("API Key");
+      if (!formData.apiSecret.trim()) missing.push("API Secret");
+    }
+    if (missing.length > 0) return setError(`請填寫以下欄位：${missing.join("、")}`);
+    const payload = { ...formData, quantity: isCryptoApiMode ? 0 : Number(formData.quantity || 0), symbol: isCryptoApiMode ? formData.apiSource : formData.symbol || null, monthlyDeductionAmount: formData.monthlyDeductionAmount.trim() === "" ? null : Number(formData.monthlyDeductionAmount), deductionDate: formData.deductionDate.trim() === "" ? null : Number(formData.deductionDate) };
     setLoading(true);
     try {
       const res = await fetch(editingAccountId ? `/api/accounts/${editingAccountId}` : "/api/accounts", { method: editingAccountId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error("儲存失敗");
       setTimeout(() => resetForm(), 500);
       await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]);
-    } catch { setError("儲存發生錯誤。"); } finally { setLoading(false); }
+      showToast(editingAccountId ? "項目已更新" : "項目已新增");
+    } catch { setError("儲存發生錯誤。"); showToast("儲存失敗", "error"); } finally { setLoading(false); }
   }
 
-  async function handleDelete(accountId: string) {
-    if (!window.confirm("確定要刪除嗎？")) return;
-    try { await fetch(`/api/accounts/${accountId}`, { method: "DELETE" }); await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]); } catch (e) {}
+  async function handleDelete(accountId: string, name: string) {
+    setItemDeleteTarget({ kind: "account", id: accountId, name });
+  }
+
+  async function confirmItemDelete() {
+    if (!itemDeleteTarget) return;
+    setItemDeleting(true);
+    try {
+      if (itemDeleteTarget.kind === "account") {
+        await fetch(`/api/accounts/${itemDeleteTarget.id}`, { method: "DELETE" });
+        await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]);
+      } else {
+        await fetch(`/api/goals?id=${itemDeleteTarget.id}`, { method: "DELETE" });
+        await fetchGoals();
+      }
+      showToast(`已刪除「${itemDeleteTarget.name}」`);
+      setItemDeleteTarget(null);
+    } catch (e) {
+      showToast("刪除失敗，請再試一次", "error");
+    } finally { setItemDeleting(false); }
   }
 
   async function handleSyncPrices() {
@@ -235,7 +307,8 @@ export default function HomePage() {
       await fetch("/api/test-fetch-prices");
       await fetch("/api/history/snapshot").catch(() => {}); // 同步後把最新淨值寫入今天的快照
       await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchExchangeRate()]);
-    } catch (e) {} finally { setSyncing(false); }
+      showToast("已同步最新價格");
+    } catch (e) { showToast("同步失敗，請稍後再試", "error"); } finally { setSyncing(false); }
   }
 
   async function fetchBenchmarks() {
@@ -401,11 +474,12 @@ export default function HomePage() {
     }).filter(Boolean);
   }, [accounts]);
 
-  const bg = "bg-[#EEF0EC] dark:bg-[#0B0D12]";
-  const surface = "bg-white dark:bg-[#12151C] border border-black/[0.07] dark:border-white/[0.07]";
-  const textPrimary = "text-[#1C1F1A] dark:text-[#E7E5DE]";
-  const textMuted = "text-[#6B7066] dark:text-[#8A8F82]";
-  const gold = "#B8933C";
+  const isPixel = uiStyle === "pixel";
+  const bg = isPixel ? "bg-[#9BBC0F] dark:bg-[#081c08]" : "bg-[#EEF0EC] dark:bg-[#0B0D12]";
+  const surface = isPixel ? "bg-[#8BAC0F] dark:bg-[#0F380F] border-[3px] border-[#0F380F] dark:border-[#9BBC0F]" : "bg-white dark:bg-[#12151C] border border-black/[0.07] dark:border-white/[0.07]";
+  const textPrimary = isPixel ? "text-[#0F380F] dark:text-[#9BBC0F]" : "text-[#1C1F1A] dark:text-[#E7E5DE]";
+  const textMuted = isPixel ? "text-[#306230] dark:text-[#8BAC0F]" : "text-[#6B7066] dark:text-[#8A8F82]";
+  const gold = isPixel ? (isDarkMode ? "#9BBC0F" : "#0F380F") : "#B8933C";
   const inputCls = "w-full h-11 px-3.5 text-sm outline-none bg-transparent text-[#1C1F1A] dark:text-[#E7E5DE] border-b-2 border-black/15 dark:border-white/15 focus:border-[#B8933C] transition-colors";
   const btnPrimary = "w-full py-3.5 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-[#EEF0EC] dark:text-[#0B0D12] rounded-lg hover:opacity-90 transition-all cursor-pointer";
   const sectionLabel = "text-[9px] font-bold tracking-[0.2em] uppercase text-[#6B7066] dark:text-[#8A8F82]";
@@ -433,7 +507,7 @@ export default function HomePage() {
               <label className={`block text-xs mb-2 ${sectionLabel}`}>密碼{authMode === "register" ? "（至少 8 字元）" : ""}</label>
               <div className="relative">
                 <input type={showAuthPassword ? "text" : "password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" className={`${inputCls} pr-9`} required minLength={authMode === "register" ? 8 : 1} />
-                <button type="button" onClick={() => setShowAuthPassword(!showAuthPassword)} tabIndex={-1} className={`absolute right-0 top-1/2 -translate-y-1/2 p-1 ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                <button type="button" onClick={() => setShowAuthPassword(!showAuthPassword)} tabIndex={-1} aria-label={showAuthPassword ? "隱藏密碼" : "顯示密碼"} className={`absolute right-0 top-1/2 -translate-y-1/2 p-1 ${textMuted} hover:text-[#B8933C] transition-colors`}>
                   {showAuthPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
@@ -471,7 +545,7 @@ export default function HomePage() {
   ];
 
   return (
-    <div className={`min-h-screen ${bg} ${textPrimary} flex flex-col`}>
+    <div className={`min-h-screen ${bg} ${textPrimary} flex flex-col ${isPixel ? "pixel-mode" : ""}`}>
       <FontStyles />
       <div className="fixed top-0 left-0 right-0 h-px z-20" style={{ background: gold, opacity: 0.5 }} />
 
@@ -484,15 +558,32 @@ export default function HomePage() {
                 <Sparkles className="h-3.5 w-3.5" style={{ color: gold }} />
                 <span className="font-display text-base font-semibold tracking-tight">Zeno <span className={`font-normal italic ${textMuted}`}>Worth</span></span>
               </div>
-              <button onClick={toggleDarkMode} className={`p-2 rounded-lg ${textMuted} hover:text-[#B8933C] transition-colors`}>
-                {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              </button>
+              <div className="flex items-center gap-1">
+                <div className="relative">
+                  <select
+                    value={uiStyle}
+                    onChange={(e) => setUiStyle(e.target.value as "simple" | "pixel")}
+                    aria-label="切換風格"
+                    className={`appearance-none pl-2.5 pr-6 py-2 text-xs font-semibold rounded-lg bg-transparent ${textMuted} hover:text-[#B8933C] transition-colors cursor-pointer outline-none border-none`}
+                  >
+                    <option value="simple">簡約風</option>
+                    <option value="pixel">像素風</option>
+                  </select>
+                  <ChevronRight className={`h-3 w-3 rotate-90 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none ${textMuted}`} />
+                </div>
+                <button onClick={handleSaveUiStyle} aria-label="儲存風格設定" className={`p-2 rounded-lg ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                  <Save className="h-4 w-4" />
+                </button>
+                <button onClick={toggleDarkMode} aria-label={isDarkMode ? "切換淺色模式" : "切換深色模式"} className={`p-2 rounded-lg ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                  {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             <div className={`${surface} rounded-2xl p-5`}>
               <div className="flex items-center justify-between mb-1">
                 <span className={sectionLabel}><Wallet className="inline h-3 w-3 mr-1 -mt-0.5" />總淨資產</span>
-                <button onClick={() => setHideBalance(!hideBalance)} className={`p-1 ${textMuted} hover:text-[#B8933C] transition-colors`}>
+                <button onClick={() => setHideBalance(!hideBalance)} aria-label={hideBalance ? "顯示金額" : "隱藏金額"} className={`p-1 ${textMuted} hover:text-[#B8933C] transition-colors`}>
                   {hideBalance ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
@@ -516,7 +607,7 @@ export default function HomePage() {
                   <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
                   {syncing ? "同步中…" : "同步"}
                 </button>
-                <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-white transition-all" style={{ background: "#e2b098" }}>
+                <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-white active:scale-95 transition-transform" style={{ background: "#e2b098" }}>
                   <Plus className="h-3.5 w-3.5" /> 新增項目
                 </button>
                 <div className={`ml-auto font-mono-ledger text-[11px] ${textMuted}`}>
@@ -547,7 +638,7 @@ export default function HomePage() {
                         {goal.progress >= 100 ? "✓ 達標" : `${goal.progress}%`}
                       </span>
                       <button onClick={() => { setEditingGoal(goal); setGoalForm({ name: goal.name, targetAmount: String(goal.targetAmount), type: goal.type, accountId: goal.accountId || "", emoji: goal.emoji || "" }); setShowGoalForm(true); }} className={`p-0.5 ${textMuted} hover:text-[#B8933C] transition-colors`}><Pencil className="h-3 w-3" /></button>
-                      <button onClick={() => handleDeleteGoal(goal.id)} className={`p-0.5 ${textMuted} hover:text-[#A24936] transition-colors`}><Trash2 className="h-3 w-3" /></button>
+                      <button onClick={() => handleDeleteGoal(goal.id, goal.name)} aria-label="刪除目標" className={`p-1.5 -m-1 ${textMuted} hover:text-[#A24936] active:scale-90 transition-transform`}><Trash2 className="h-3 w-3" /></button>
                     </div>
                     <div className="w-full bg-black/[0.06] dark:bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
                       <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${goal.progress}%`, background: goal.progress >= 100 ? "#4F7B5E" : "#B8933C" }} />
@@ -581,6 +672,12 @@ export default function HomePage() {
                         <span className="font-mono-ledger text-sm font-semibold shrink-0">NT$ {formatCurrency(card.currentValue)}</span>
                       </div>
                       {showSubtitle && <p className="text-xs mt-0.5 truncate" style={{ color: gold }}>{card.subtitle}</p>}
+                      {card.account.isApiConnected && card.account.apiSyncError && (
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-xs text-red-500">⚠️ API 已過期</p>
+                          <button onClick={() => startEdit(card.account)} className="text-xs font-semibold text-red-500 underline underline-offset-2 active:opacity-60">立即設定</button>
+                        </div>
+                      )}
                       <div className="mt-1 flex items-center justify-between gap-2">
                         <p className={`font-mono-ledger text-xs ${textMuted} flex items-center gap-2`}>
                           <span>{symbolRequiredCategories.includes(card.category) ? `持有 ${formatCurrency(card.quantity)} 股` : `餘額 ${formatCurrency(card.quantity)}`}</span>
@@ -589,8 +686,8 @@ export default function HomePage() {
                           )}
                         </p>
                         <div className="flex items-center gap-1 shrink-0">
-                          <button onClick={() => startEdit(card.account)} className={`p-1.5 ${textMuted} hover:text-[#B8933C] transition-colors`}><Pencil className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => handleDelete(card.account.id)} className={`p-1.5 ${textMuted} hover:text-[#A24936] transition-colors`}><Trash2 className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => startEdit(card.account)} aria-label="編輯項目" className={`p-2.5 -m-1 ${textMuted} hover:text-[#B8933C] active:scale-90 transition-transform`}><Pencil className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => handleDelete(card.account.id, card.account.name)} aria-label="刪除項目" className={`p-2.5 -m-1 ${textMuted} hover:text-[#A24936] active:scale-90 transition-transform`}><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
                       </div>
                     </div>
@@ -605,7 +702,7 @@ export default function HomePage() {
           <div className="px-4 pt-8 pb-4 max-w-lg mx-auto space-y-4">
             <div className="flex items-center justify-between pb-3 border-b-2 border-[#1C1F1A] dark:border-[#B8933C]">
               <h2 className="font-display text-base font-semibold">資產明細</h2>
-              <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-white" style={{ background: "#e2b098" }}>
+              <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-white active:scale-95 transition-transform" style={{ background: "#e2b098" }}>
                 <Plus className="h-3.5 w-3.5" /> 新增
               </button>
             </div>
@@ -645,10 +742,16 @@ export default function HomePage() {
                                   <p className={`font-mono-ledger text-xs ${textMuted} mt-0.5`}>
                                     {account.symbol ? `${account.symbol.replace(/\.TW$/i, "")} · ` : ""}{formatCurrency(account.quantity)}{amountInputCategories.includes(account.category) ? "" : " 股"}
                                   </p>
+                                  {account.isApiConnected && account.apiSyncError && (
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <p className="text-xs text-red-500">⚠️ API 已過期</p>
+                                      <button onClick={() => startEdit(account)} className="text-xs font-semibold text-red-500 underline underline-offset-2 active:opacity-60">立即設定</button>
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2 ml-3 shrink-0">
                                   <p className="font-mono-ledger text-sm font-semibold">NT$ {formatCurrency(account.currentValue)}</p>
-                                  <button onClick={() => startEdit(account)} className={`p-1.5 ${textMuted} hover:text-[#B8933C] transition-colors`}><Pencil className="h-3.5 w-3.5" /></button>
+                                  <button onClick={() => startEdit(account)} aria-label="編輯項目" className={`p-2.5 -m-1 ${textMuted} hover:text-[#B8933C] active:scale-90 transition-transform`}><Pencil className="h-3.5 w-3.5" /></button>
                                 </div>
                               </div>
                             ))}
@@ -871,7 +974,7 @@ export default function HomePage() {
                   {!showApiFields && (
                     <div>
                       <label className={`block text-xs mb-2 ${sectionLabel}`}>{usesAmountInput ? "總金額" : "持有股數"}</label>
-                      <input type="number" step="any" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                      <input type="number" inputMode="decimal" step="any" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} className={`${inputCls} font-mono-ledger`} />
                     </div>
                   )}
                 </div>
@@ -912,19 +1015,19 @@ export default function HomePage() {
                   <div className="grid gap-4 grid-cols-2">
                     <div>
                       <label className={`block text-xs mb-2 ${sectionLabel}`}>每月扣款金額</label>
-                      <input type="number" step="any" min="0" placeholder="例如：15000" value={formData.monthlyDeductionAmount} onChange={(e) => setFormData({ ...formData, monthlyDeductionAmount: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                      <input type="number" inputMode="decimal" step="any" min="0" placeholder="例如：15000" value={formData.monthlyDeductionAmount} onChange={(e) => setFormData({ ...formData, monthlyDeductionAmount: e.target.value })} className={`${inputCls} font-mono-ledger`} />
                     </div>
                     <div>
                       <label className={`block text-xs mb-2 ${sectionLabel}`}>每月扣款日</label>
-                      <input type="number" step="1" min="1" max="31" placeholder="例如：5" value={formData.deductionDate} onChange={(e) => setFormData({ ...formData, deductionDate: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                      <input type="number" inputMode="numeric" step="1" min="1" max="31" placeholder="例如：5" value={formData.deductionDate} onChange={(e) => setFormData({ ...formData, deductionDate: e.target.value })} className={`${inputCls} font-mono-ledger`} />
                     </div>
                     <p className={`col-span-2 text-xs ${textMuted} -mt-2`}>每月到扣款日，系統自動從負債總額扣除。</p>
                   </div>
                 )}
                 {error && <p className="text-sm font-medium text-[#A24936] bg-[#A24936]/8 p-3 rounded-lg">{error}</p>}
                 <div className="flex gap-3 pt-4 border-t border-black/[0.06] dark:border-white/[0.06]">
-                  <button type="button" onClick={() => setShowForm(false)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer`}>取消</button>
-                  <button type="submit" disabled={loading} className="flex-1 py-3 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-white dark:text-black rounded-lg hover:opacity-90 transition-all cursor-pointer">{loading ? "儲存中…" : "確認儲存"}</button>
+                  <button type="button" onClick={() => setShowForm(false)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer active:scale-[0.97] transition-transform`}>取消</button>
+                  <button type="submit" disabled={loading} className="flex-1 py-3 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-white dark:text-black rounded-lg hover:opacity-90 active:scale-[0.97] transition-transform cursor-pointer">{loading ? "儲存中…" : "確認儲存"}</button>
                 </div>
               </form>
             </div>
@@ -948,7 +1051,7 @@ export default function HomePage() {
                 </div>
                 <div>
                   <label className={`block text-xs mb-2 ${sectionLabel}`}>該日淨資產 (NT$)</label>
-                  <input type="number" placeholder="例如：50000" value={historyFormData.netWorth} onChange={(e) => setHistoryFormData({ ...historyFormData, netWorth: e.target.value })} className={`${inputCls} font-mono-ledger`} required />
+                  <input type="number" inputMode="decimal" placeholder="例如：50000" value={historyFormData.netWorth} onChange={(e) => setHistoryFormData({ ...historyFormData, netWorth: e.target.value })} className={`${inputCls} font-mono-ledger`} required />
                 </div>
                 <button type="submit" disabled={historyLoading} className={btnPrimary}>
                   {historyLoading ? "處理中…" : "確認補登"}
@@ -981,7 +1084,7 @@ export default function HomePage() {
                 </div>
                 <div>
                   <label className={`block text-xs mb-2 ${sectionLabel}`}>目標金額 (NT$)</label>
-                  <input type="number" step="any" min="1" value={goalForm.targetAmount} onChange={e => setGoalForm({...goalForm, targetAmount: e.target.value})} placeholder="例如：3000000" className={`${inputCls} font-mono-ledger`} required />
+                  <input type="number" inputMode="decimal" step="any" min="1" value={goalForm.targetAmount} onChange={e => setGoalForm({...goalForm, targetAmount: e.target.value})} placeholder="例如：3000000" className={`${inputCls} font-mono-ledger`} required />
                 </div>
                 <div>
                   <label className={`block text-xs mb-2 ${sectionLabel}`}>計算基準</label>
@@ -1033,6 +1136,43 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* 刪除項目確認（資產/負債/目標） */}
+      {itemDeleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl p-6`}>
+            <div className="flex items-start gap-4 mb-5">
+              <div className="p-2 bg-[#A24936]/10 rounded-xl shrink-0">
+                <AlertTriangle className="h-6 w-6 text-[#A24936]" />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold text-[#A24936]">
+                  {itemDeleteTarget.kind === "goal" ? "刪除目標" : "刪除項目"}
+                </h3>
+                <p className={`text-sm ${textMuted} mt-1 leading-relaxed`}>確定要刪除「{itemDeleteTarget.name}」嗎？此操作無法復原。</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setItemDeleteTarget(null)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer active:scale-[0.97] transition-transform`}>取消</button>
+              <button onClick={confirmItemDelete} disabled={itemDeleting} className="flex-1 py-3 text-sm font-semibold bg-[#A24936] text-white rounded-lg hover:opacity-90 active:scale-[0.97] transition-transform cursor-pointer">
+                {itemDeleting ? "刪除中…" : "確認刪除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast 提示 */}
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] flex flex-col gap-2 items-center w-full px-4 pointer-events-none">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto max-w-sm px-4 py-2.5 rounded-lg text-sm font-semibold shadow-lg text-white ${t.kind === "error" ? "bg-[#A24936]" : "bg-[#1C1F1A] dark:bg-[#B8933C] dark:text-black"}`}
+          >
+            {t.message}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

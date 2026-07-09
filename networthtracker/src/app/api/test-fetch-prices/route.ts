@@ -197,13 +197,18 @@ export async function GET() {
         const twdValue = totalUsdValue * usdToTwdRate;
         await prisma.account.update({
           where: { id: account.id },
-          data: { quantity: totalUsdValue, currentPrice: 1, currentValue: twdValue },
+          data: { quantity: totalUsdValue, currentPrice: 1, currentValue: twdValue, lastApiSyncAt: new Date(), apiSyncError: null },
         });
 
         results.bitfinexUpdates.push({ accountName: account.name, symbol: 'TOTAL_USD', quantity: totalUsdValue, usdPrice: 1, twdValue });
         console.log(`[Bitfinex] 同步成功！帳戶: ${account.name}, 總計: ${totalUsdValue.toFixed(2)} USD`);
       } catch (err) {
-        results.errors.push(`[Bitfinex] 帳戶 ${account.name} 串接失敗: ${err instanceof Error ? err.message : String(err)}`);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        results.errors.push(`[Bitfinex] 帳戶 ${account.name} 串接失敗: ${errorMsg}`);
+        await prisma.account.update({
+          where: { id: account.id },
+          data: { apiSyncError: errorMsg },
+        }).catch(() => {});
       }
     }
   } catch (error) {
@@ -230,13 +235,18 @@ export async function GET() {
         const twdValue = totalUsdValue * usdToTwdRate;
         await prisma.account.update({
           where: { id: account.id },
-          data: { quantity: totalUsdValue, currentPrice: 1, currentValue: twdValue },
+          data: { quantity: totalUsdValue, currentPrice: 1, currentValue: twdValue, lastApiSyncAt: new Date(), apiSyncError: null },
         });
 
         results.binanceUpdates.push({ accountName: account.name, quantity: totalUsdValue, twdValue });
         console.log(`[Binance] 同步成功！帳戶: ${account.name}, 總計: ${totalUsdValue.toFixed(2)} USD`);
       } catch (err) {
-        results.errors.push(`[Binance] 帳戶 ${account.name} 串接失敗: ${err instanceof Error ? err.message : String(err)}`);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        results.errors.push(`[Binance] 帳戶 ${account.name} 串接失敗: ${errorMsg}`);
+        await prisma.account.update({
+          where: { id: account.id },
+          data: { apiSyncError: errorMsg },
+        }).catch(() => {});
       }
     }
   } catch (error) {

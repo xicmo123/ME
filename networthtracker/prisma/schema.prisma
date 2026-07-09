@@ -86,6 +86,8 @@ model Account {
   apiSource     String?
   apiKey        String?
   apiSecret     String?
+  lastApiSyncAt DateTime?
+  apiSyncError  String?
   monthlyDeductionAmount Float?
   deductionDate Int?
   deductFromAccountId String?
