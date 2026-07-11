@@ -30,6 +30,75 @@ function getYahooQuoteSymbol(category: string, symbol: string) {
   return normalizedSymbol;
 }
 
+// ─── 節流：使用者手動按「更新」時，如果距離上一次成功同步不到 THROTTLE_MS，
+// 直接跳過外部 API 呼叫，避免有人連續猛戳更新鍵而放大請求量。
+// 內部 cron 排程（每 10 分鐘一次）不受此限制，一律照排程執行。
+// 這是單一長駐 Node process（非 serverless），模組層級變數在整個 process 生命週期內有效。
+const THROTTLE_MS = 60_000;
+let lastSyncCompletedAt = 0;
+
+// ─── 開盤時間判斷：收盤後股價不會變，不需要浪費請求額度重複查。
+// 加密貨幣是 24 小時市場，不受此限制。
+function getTaipeiParts(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Taipei",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now).reduce((acc: Record<string, string>, p) => ({ ...acc, [p.type]: p.value }), {});
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    weekday: weekdayMap[parts.weekday] ?? 0,
+    totalMin: Number(parts.hour) * 60 + Number(parts.minute),
+  };
+}
+
+function isTwMarketOpen(now: Date): boolean {
+  const { weekday, totalMin } = getTaipeiParts(now);
+  return weekday >= 1 && weekday <= 5 && totalMin >= 9 * 60 && totalMin <= 13 * 60 + 35;
+}
+
+// 美股盤中時間依日光節約時間在台灣時間 21:30~04:00 或 22:30~05:00 之間浮動，
+// 這裡取寬鬆區間（21:00~05:30）以免因日光節約切換而誤判成休市。
+function isUsMarketOpen(now: Date): boolean {
+  const { weekday, totalMin } = getTaipeiParts(now);
+  const eveningStart = 21 * 60;
+  const morningEnd = 5 * 60 + 30;
+  if (totalMin >= eveningStart) return weekday >= 1 && weekday <= 5;
+  if (totalMin < morningEnd) return weekday >= 2 && weekday <= 6;
+  return false;
+}
+
+function isMarketOpenForCategory(category: string, now: Date): boolean {
+  if (category === 'TAIWAN_STOCK') return isTwMarketOpen(now);
+  if (category === 'US_STOCK') return isUsMarketOpen(now);
+  return true; // CRYPTO 24 小時市場
+}
+
+// ─── 台股報價改用證交所自己的公開行情端點，不用 Yahoo 這種非官方爬蟲式套件，
+// 降低被限流/封鎖的風險。上市（tse）查不到就試上櫃（otc）。查不到就回傳 null，讓呼叫端 fallback 回 Yahoo。
+async function getTwseQuote(rawSymbol: string): Promise<number | null> {
+  const code = rawSymbol.replace(/\.TW$/i, "").trim();
+  if (!code) return null;
+  for (const prefix of ["tse", "otc"]) {
+    try {
+      const res = await fetch(`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${prefix}_${code}.tw`, { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const item = data?.msgArray?.[0];
+      if (!item) continue;
+      const lastTradedPrice = parseFloat(item.z);
+      if (lastTradedPrice > 0) return lastTradedPrice;
+      const prevClose = parseFloat(item.y); // 今天還沒成交（例如剛開盤）時用昨收價當備援
+      if (prevClose > 0) return prevClose;
+    } catch {
+      // 忽略，換下一個 prefix 或最終回傳 null 讓呼叫端 fallback
+    }
+  }
+  return null;
+}
+
 async function getUsdToTwdRate(yahoo: any): Promise<{ rate: number; source: string } | null> {
   try {
     const result = await yahoo.quote('TWD=X');
@@ -92,10 +161,17 @@ async function fetchBinanceTotalUsd(apiKey: string, apiSecret: string, priceMap:
 export async function GET(request: NextRequest) {
   // 這支會更新「全部使用者」的報價，開放給：內部 cron，或任一已登入使用者（App 內按「更新」時呼叫）。
   // 目的是擋掉匿名外部呼叫者無限次濫用，不是做逐使用者的權限區分。
-  if (!isTrustedCronRequest(request) && !getUserIdFromRequest(request)) {
+  const isCron = isTrustedCronRequest(request);
+  if (!isCron && !getUserIdFromRequest(request)) {
     return NextResponse.json({ message: "未授權" }, { status: 401 });
   }
 
+  // 使用者手動按「更新」按太快，直接跳過這次外部 API 呼叫（cron 排程本身間隔已經夠長，不受此限制）
+  if (!isCron && Date.now() - lastSyncCompletedAt < THROTTLE_MS) {
+    return NextResponse.json({ message: "更新太頻繁，請稍後再試", throttled: true });
+  }
+
+  const now = new Date();
   const results = {
     timestamp: new Date().toISOString(),
     manualUpdates: [] as Array<{ symbol: string; category: string; price: number; currentValue: number }>,
@@ -118,7 +194,8 @@ export async function GET(request: NextRequest) {
 
   // ─── 手動帳戶（台股、美股、加密貨幣）───────────────────────────
   // 同一輪同步中，不論有多少個帳戶／使用者持有同一檔 symbol，都只查一次報價並共用結果，
-  // 避免使用者數量增長後對 Yahoo 的請求量隨帳戶數線性放大而被限流／封鎖。
+  // 避免使用者數量增長後對報價來源的請求量隨帳戶數線性放大而被限流／封鎖。
+  // 另外，收盤後價格不會變，未開盤的類別這一輪直接跳過，不浪費請求額度。
   try {
     const manualAccounts = await prisma.account.findMany({
       where: {
@@ -129,17 +206,26 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'asc' },
     });
 
-    const quoteSymbolMap = new Map<string, { category: string; quoteSymbol: string }>();
+    const quoteSymbolMap = new Map<string, { category: string; quoteSymbol: string; rawSymbol: string }>();
     for (const account of manualAccounts) {
       const symbol = account.symbol?.trim();
       if (!symbol) continue;
+      if (!isMarketOpenForCategory(account.category, now)) continue;
       const quoteSymbol = getYahooQuoteSymbol(account.category, symbol);
-      if (!quoteSymbolMap.has(quoteSymbol)) quoteSymbolMap.set(quoteSymbol, { category: account.category, quoteSymbol });
+      if (!quoteSymbolMap.has(quoteSymbol)) quoteSymbolMap.set(quoteSymbol, { category: account.category, quoteSymbol, rawSymbol: symbol });
     }
 
     const priceBySymbol = new Map<string, number>();
-    for (const { quoteSymbol } of quoteSymbolMap.values()) {
+    for (const { category, quoteSymbol, rawSymbol } of quoteSymbolMap.values()) {
       try {
+        // 台股優先用證交所自己的公開行情端點，查不到（例如興櫃、代碼格式特殊）才退回 Yahoo
+        if (category === 'TAIWAN_STOCK') {
+          const twsePrice = await getTwseQuote(rawSymbol);
+          if (twsePrice) {
+            priceBySymbol.set(quoteSymbol, twsePrice);
+            continue;
+          }
+        }
         const quoteResult = await yahoo.quote(quoteSymbol);
         const marketPrice = Number(quoteResult.regularMarketPrice || 0);
         if (marketPrice) priceBySymbol.set(quoteSymbol, marketPrice);
@@ -320,6 +406,7 @@ export async function GET(request: NextRequest) {
     binanceUpdates: results.binanceUpdates.length,
   };
 
+  lastSyncCompletedAt = Date.now();
   return NextResponse.json(results);
 }
 
