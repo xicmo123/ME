@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import YahooFinance from "yahoo-finance2"
 import { PrismaClient } from "@prisma/client"
 import { getUserIdFromRequest } from "@/lib/auth"
+import { encrypt } from "@/lib/crypto"
 
 declare global {
   // eslint-disable-next-line no-var
@@ -114,14 +115,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       currentPrice: nextCurrentPrice, currentValue: nextCurrentValue,
       isApiConnected: isApiMode,
       apiSource: isApiMode ? (apiSource?.trim() || "BITFINEX") : null,
-      apiKey: isApiMode ? (apiKey?.trim() || null) : null,
-      apiSecret: isApiMode ? (apiSecret?.trim() || null) : null,
+      // 前端不會再收到明碼，編輯時若欄位留空代表「不變更」，沿用資料庫既有的加密值
+      apiKey: isApiMode ? (apiKey?.trim() ? encrypt(apiKey.trim()) : existingAccount.apiKey) : null,
+      apiSecret: isApiMode ? (apiSecret?.trim() ? encrypt(apiSecret.trim()) : existingAccount.apiSecret) : null,
       monthlyDeductionAmount: deductionAmountValue,
       deductionDate: deductionDateValue,
     },
   })
 
-  return NextResponse.json(updatedAccount, { status: 200 })
+  const { apiKey: _apiKey, apiSecret: _apiSecret, ...sanitizedAccount } = updatedAccount
+  return NextResponse.json({ ...sanitizedAccount, hasApiCredentials: Boolean(updatedAccount.apiKey && updatedAccount.apiSecret) }, { status: 200 })
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

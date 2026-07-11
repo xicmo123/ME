@@ -4,7 +4,15 @@
 import { NextRequest } from "next/server";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_change_this";
+function requireJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET 環境變數未設定，拒絕啟動（避免用不安全的預設密鑰簽發登入憑證）");
+  }
+  return secret;
+}
+
+const JWT_SECRET = requireJwtSecret();
 
 export function getUserIdFromRequest(request: NextRequest): string | null {
   try {

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { isTrustedCronRequest } from "@/lib/cron-auth";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -18,7 +19,11 @@ if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
 // - deductionDate 直接等於今天的日期（1~31）就觸發
 // - 如果 deductionDate 超過當月天數（例如設 31 號，但 2 月只有 28 天），
 //   則在當月最後一天觸發，避免有些月份永遠扣不到款
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (!isTrustedCronRequest(request)) {
+    return NextResponse.json({ message: "未授權" }, { status: 401 });
+  }
+
   const results = {
     timestamp: new Date().toISOString(),
     deducted: [] as Array<{ id: string; name: string; before: number; after: number; deductionAmount: number }>,

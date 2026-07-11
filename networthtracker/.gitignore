@@ -42,5 +42,9 @@ next-env.d.ts
 
 /src/generated/prisma
 
+# local sqlite database (app now uses Postgres; this was only ever local dev data)
+prisma/dev.db
+prisma/dev.db-journal
+
 # claude code local tooling
 /.claude/

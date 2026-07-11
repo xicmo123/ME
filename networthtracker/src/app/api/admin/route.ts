@@ -93,14 +93,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "用戶已停用" });
   }
 
-  // 刪除用戶（完全刪除，包含所有資料）
+  // 刪除用戶（完全刪除，包含所有資料——schema 上關聯都是 onDelete: Cascade，刪 User 會自動連帶刪除）
   if (action === "deleteUser" && targetUserId) {
     if (targetUserId === ADMIN_ID) {
       return NextResponse.json({ message: "不能刪除管理員帳號" }, { status: 400 });
     }
-    await prisma.assetHistory.deleteMany({ where: { userId: targetUserId } });
-    await prisma.transaction.deleteMany({ where: { userId: targetUserId } });
-    await prisma.account.deleteMany({ where: { userId: targetUserId } });
+    const existing = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
+    if (!existing) return NextResponse.json({ message: "用戶不存在" }, { status: 404 });
     await prisma.user.delete({ where: { id: targetUserId } });
     return NextResponse.json({ message: "用戶已刪除" });
   }

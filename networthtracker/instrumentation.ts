@@ -6,6 +6,13 @@
 // 排程邏輯寫在程式碼裡，之後不管部署到哪台機器、賣給誰，
 // 只要 app 有啟動，排程就會自動生效，不需要額外設定系統 crontab。
 
+// 帶上共用密鑰，讓下面幾支內部排程專用 API 能分辨「是自己的 cron 呼叫」還是「外部任意呼叫」，
+// 避免這些會動到全部使用者資料的端點被任何人隨時從外部打來濫用。
+function cronHeaders(): Record<string, string> {
+  const secret = process.env.CRON_SECRET;
+  return secret ? { "x-cron-secret": secret } : {};
+}
+
 export async function register() {
   // instrumentation.ts 在 nodejs 跟 edge 兩種 runtime 都會被呼叫到，
   // node-cron 只能在 nodejs runtime 下運作，這裡做個防呆避免重複註冊或在 edge 環境出錯。
@@ -21,7 +28,7 @@ export async function register() {
     "*/10 * * * *",
     async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/test-fetch-prices`);
+        const res = await fetch(`${BASE_URL}/api/test-fetch-prices`, { headers: cronHeaders() });
         console.log(`[Cron] 價格同步完成，status: ${res.status}`);
       } catch (error) {
         console.error("[Cron] 價格同步失敗:", error);
@@ -35,7 +42,7 @@ export async function register() {
     "59 23 * * *",
     async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/history/snapshot`);
+        const res = await fetch(`${BASE_URL}/api/history/snapshot`, { headers: cronHeaders() });
         console.log(`[Cron] 每日淨資產快照完成，status: ${res.status}`);
       } catch (error) {
         console.error("[Cron] 每日快照失敗:", error);
@@ -49,7 +56,7 @@ export async function register() {
     "10 0 * * *",
     async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/accounts/apply-deductions`);
+        const res = await fetch(`${BASE_URL}/api/accounts/apply-deductions`, { headers: cronHeaders() });
         console.log(`[Cron] 負債自動扣款檢查完成，status: ${res.status}`);
       } catch (error) {
         console.error("[Cron] 負債自動扣款失敗:", error);

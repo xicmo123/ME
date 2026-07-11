@@ -1,12 +1,25 @@
 import ccxt from "ccxt";
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import YahooFinance from "yahoo-finance2";
 import { PrismaClient } from '@prisma/client';
 import { Spot } from '@binance/connector';
+import { decrypt } from '@/lib/crypto';
+import { getUserIdFromRequest } from '@/lib/auth';
+import { isTrustedCronRequest } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
 const prisma = new PrismaClient();
+
+// 加密功能上線前建立的帳戶，apiKey/apiSecret 還是明碼存的舊資料；
+// 解密失敗就當作舊的明碼值直接使用，讓舊帳戶在下次編輯前仍可正常同步。
+function decryptOrLegacyPlaintext(value: string): string {
+  try {
+    return decrypt(value);
+  } catch {
+    return value;
+  }
+}
 
 function getYahooQuoteSymbol(category: string, symbol: string) {
   const normalizedSymbol = symbol.trim().toUpperCase();
@@ -39,7 +52,9 @@ async function getUsdToTwdRate(yahoo: any): Promise<{ rate: number; source: stri
 }
 
 // 🌟 幣安：用 getUserAsset 抓所有帳戶資產總覽（跟 App 首頁「預估總價值」一致）
-async function fetchBinanceTotalUsd(apiKey: string, apiSecret: string): Promise<number> {
+// priceMap（全市場報價，公開端點）由呼叫端在同一輪同步中只抓一次、所有帳戶共用傳入，
+// 避免每個帳戶都重打一次全市場報價、隨帳戶數放大對 Binance 的請求權重。
+async function fetchBinanceTotalUsd(apiKey: string, apiSecret: string, priceMap: Map<string, number>): Promise<number> {
   const crypto = await import('crypto');
   const timestamp = Date.now();
   const query = `timestamp=${timestamp}`;
@@ -54,11 +69,6 @@ async function fetchBinanceTotalUsd(apiKey: string, apiSecret: string): Promise<
 
   const balances: Array<{ asset: string; free: string; locked: string }> = data.balances;
   const holdings = balances.filter(b => Number(b.free) + Number(b.locked) > 0);
-
-  // 抓現貨行情換算非穩定幣
-  const pricesRes = await fetch('https://api.binance.com/api/v3/ticker/price');
-  const prices = await pricesRes.json() as Array<{ symbol: string; price: string }>;
-  const priceMap = new Map(prices.map(p => [p.symbol, Number(p.price)]));
 
   let totalUsd = 0;
 
@@ -79,7 +89,13 @@ async function fetchBinanceTotalUsd(apiKey: string, apiSecret: string): Promise<
   return totalUsd;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // 這支會更新「全部使用者」的報價，開放給：內部 cron，或任一已登入使用者（App 內按「更新」時呼叫）。
+  // 目的是擋掉匿名外部呼叫者無限次濫用，不是做逐使用者的權限區分。
+  if (!isTrustedCronRequest(request) && !getUserIdFromRequest(request)) {
+    return NextResponse.json({ message: "未授權" }, { status: 401 });
+  }
+
   const results = {
     timestamp: new Date().toISOString(),
     manualUpdates: [] as Array<{ symbol: string; category: string; price: number; currentValue: number }>,
@@ -101,6 +117,8 @@ export async function GET() {
   }
 
   // ─── 手動帳戶（台股、美股、加密貨幣）───────────────────────────
+  // 同一輪同步中，不論有多少個帳戶／使用者持有同一檔 symbol，都只查一次報價並共用結果，
+  // 避免使用者數量增長後對 Yahoo 的請求量隨帳戶數線性放大而被限流／封鎖。
   try {
     const manualAccounts = await prisma.account.findMany({
       where: {
@@ -111,14 +129,34 @@ export async function GET() {
       orderBy: { createdAt: 'asc' },
     });
 
+    const quoteSymbolMap = new Map<string, { category: string; quoteSymbol: string }>();
+    for (const account of manualAccounts) {
+      const symbol = account.symbol?.trim();
+      if (!symbol) continue;
+      const quoteSymbol = getYahooQuoteSymbol(account.category, symbol);
+      if (!quoteSymbolMap.has(quoteSymbol)) quoteSymbolMap.set(quoteSymbol, { category: account.category, quoteSymbol });
+    }
+
+    const priceBySymbol = new Map<string, number>();
+    for (const { quoteSymbol } of quoteSymbolMap.values()) {
+      try {
+        const quoteResult = await yahoo.quote(quoteSymbol);
+        const marketPrice = Number(quoteResult.regularMarketPrice || 0);
+        if (marketPrice) priceBySymbol.set(quoteSymbol, marketPrice);
+      } catch (error) {
+        const errorMsg = `Quote error for ${quoteSymbol}: ${error instanceof Error ? error.message : String(error)}`;
+        results.errors.push(errorMsg);
+        console.error(errorMsg);
+      }
+    }
+
     for (const account of manualAccounts) {
       const symbol = account.symbol?.trim();
       if (!symbol) continue;
 
       try {
         const quoteSymbol = getYahooQuoteSymbol(account.category, symbol);
-        const quoteResult = await yahoo.quote(quoteSymbol);
-        const marketPrice = Number(quoteResult.regularMarketPrice || 0);
+        const marketPrice = priceBySymbol.get(quoteSymbol);
         if (!marketPrice) continue;
 
         let currentPrice: number;
@@ -143,7 +181,7 @@ export async function GET() {
 
         results.manualUpdates.push({ symbol: quoteSymbol, category: account.category, price: currentPrice, currentValue });
       } catch (error) {
-        const errorMsg = `Quote error for ${account.symbol}: ${error instanceof Error ? error.message : String(error)}`;
+        const errorMsg = `Update error for ${account.symbol}: ${error instanceof Error ? error.message : String(error)}`;
         results.errors.push(errorMsg);
         console.error(errorMsg);
       }
@@ -153,25 +191,35 @@ export async function GET() {
   }
 
   // ─── Bitfinex ────────────────────────────────────────────────
+  // 錢包餘額（privatePostAuthRWallets）需要各使用者自己的 API Key，無法共用。
+  // 但市場報價（fetchTickers）是公開資料，同一輪只查一次、所有帳戶共用，避免隨帳戶數重複打公開端點。
   try {
     const bitfinexAccounts = await prisma.account.findMany({
       where: { isActive: true, isApiConnected: true, apiSource: 'BITFINEX', category: 'CRYPTO' },
     });
+
+    let sharedTickers: any = {};
+    if (bitfinexAccounts.length > 0) {
+      try {
+        sharedTickers = await new ccxt.bitfinex({ enableRateLimit: true }).fetchTickers();
+      } catch (e) {
+        results.errors.push(`Bitfinex shared tickers error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
 
     for (const account of bitfinexAccounts) {
       try {
         if (!account.apiKey || !account.apiSecret) continue;
 
         const exchange = new ccxt.bitfinex({
-          apiKey: account.apiKey.trim(),
-          secret: account.apiSecret.trim(),
+          apiKey: decryptOrLegacyPlaintext(account.apiKey.trim()),
+          secret: decryptOrLegacyPlaintext(account.apiSecret.trim()),
           enableRateLimit: true,
         });
 
         const wallets = await exchange.privatePostAuthRWallets();
         let totalUsdValue = 0;
-        let tickers: any = {};
-        try { tickers = await exchange.fetchTickers(); } catch (e) {}
+        const tickers = sharedTickers;
 
         for (const w of wallets) {
           const coin = w[1];
@@ -216,10 +264,22 @@ export async function GET() {
   }
 
   // ─── 幣安 Binance ────────────────────────────────────────────
+  // ticker/price 是公開端點，同一輪只查一次、所有帳戶共用，避免隨帳戶數重複打全市場報價。
   try {
     const binanceAccounts = await prisma.account.findMany({
       where: { isActive: true, isApiConnected: true, apiSource: 'BINANCE', category: 'CRYPTO' },
     });
+
+    let sharedPriceMap = new Map<string, number>();
+    if (binanceAccounts.length > 0) {
+      try {
+        const pricesRes = await fetch('https://api.binance.com/api/v3/ticker/price');
+        const prices = await pricesRes.json() as Array<{ symbol: string; price: string }>;
+        sharedPriceMap = new Map(prices.map(p => [p.symbol, Number(p.price)]));
+      } catch (e) {
+        results.errors.push(`Binance shared ticker/price error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
 
     for (const account of binanceAccounts) {
       try {
@@ -229,7 +289,7 @@ export async function GET() {
           continue;
         }
 
-        const totalUsdValue = await fetchBinanceTotalUsd(account.apiKey.trim(), account.apiSecret.trim());
+        const totalUsdValue = await fetchBinanceTotalUsd(decryptOrLegacyPlaintext(account.apiKey.trim()), decryptOrLegacyPlaintext(account.apiSecret.trim()), sharedPriceMap);
         if (totalUsdValue === 0) continue;
 
         const twdValue = totalUsdValue * usdToTwdRate;

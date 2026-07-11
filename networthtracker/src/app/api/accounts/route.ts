@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 import { PrismaClient } from "@prisma/client";
 import { getUserIdFromRequest } from "@/lib/auth";
+import { encrypt } from "@/lib/crypto";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -67,7 +68,13 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(accounts);
+  // 交易所 API Key/Secret 一律不回傳給前端（只在後端解密使用），避免明碼暴露在網路回應中
+  const sanitized = accounts.map(({ apiKey, apiSecret, ...rest }) => ({
+    ...rest,
+    hasApiCredentials: Boolean(apiKey && apiSecret),
+  }));
+
+  return NextResponse.json(sanitized);
 }
 
 export async function POST(request: NextRequest) {
@@ -165,12 +172,13 @@ export async function POST(request: NextRequest) {
       currentValue: currentValueValue,
       isApiConnected: isApiMode,
       apiSource: isApiMode ? (apiSource?.trim() || "BITFINEX") : null,
-      apiKey: isApiMode ? (apiKey?.trim() || null) : null,
-      apiSecret: isApiMode ? (apiSecret?.trim() || null) : null,
+      apiKey: isApiMode && apiKey?.trim() ? encrypt(apiKey.trim()) : null,
+      apiSecret: isApiMode && apiSecret?.trim() ? encrypt(apiSecret.trim()) : null,
       monthlyDeductionAmount: deductionAmountValue,
       deductionDate: deductionDateValue,
     },
   });
 
-  return NextResponse.json(account, { status: 201 });
+  const { apiKey: _apiKey, apiSecret: _apiSecret, ...sanitizedAccount } = account;
+  return NextResponse.json({ ...sanitizedAccount, hasApiCredentials: Boolean(account.apiKey && account.apiSecret) }, { status: 201 });
 }
