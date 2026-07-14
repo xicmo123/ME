@@ -51,19 +51,10 @@ export async function register() {
     { timezone: "Asia/Taipei" }
   );
 
-  // 每天 00:10（台灣時間）：檢查負債帳戶今天是不是扣款日，是的話自動扣款
-  cron.default.schedule(
-    "10 0 * * *",
-    async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/api/accounts/apply-deductions`, { headers: cronHeaders() });
-        console.log(`[Cron] 負債自動扣款檢查完成，status: ${res.status}`);
-      } catch (error) {
-        console.error("[Cron] 負債自動扣款失敗:", error);
-      }
-    },
-    { timezone: "Asia/Taipei" }
-  );
+  // 負債自動扣款改由前端在每次進入 App 時呼叫 /api/recurring/apply（見該檔案），
+  // 冪等且會正確記錄交易日期，不再需要這裡的背景 cron。
+  // （曾經同時保留這支 cron 呼叫 /api/accounts/apply-deductions，兩套邏輯互相不知道對方扣過款，
+  // 會在同一個扣款日各自扣一次，變成實質上的重複扣款，故移除。）
 
-  console.log("[Cron] 排程已註冊：每 10 分鐘同步價格、每天 23:59 記錄淨資產快照、每天 00:10 檢查負債扣款");
+  console.log("[Cron] 排程已註冊：每 10 分鐘同步價格、每天 23:59 記錄淨資產快照");
 }

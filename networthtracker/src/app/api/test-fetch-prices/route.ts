@@ -27,6 +27,9 @@ function getYahooQuoteSymbol(category: string, symbol: string) {
   if (category === 'CRYPTO') {
     return normalizedSymbol.includes('-USD') ? normalizedSymbol : `${normalizedSymbol}-USD`;
   }
+  if (category === 'TAIWAN_STOCK') {
+    return normalizedSymbol.endsWith('.TW') ? normalizedSymbol : `${normalizedSymbol}.TW`;
+  }
   return normalizedSymbol;
 }
 
@@ -34,10 +37,12 @@ function getYahooQuoteSymbol(category: string, symbol: string) {
 // 直接跳過外部 API 呼叫，避免有人連續猛戳更新鍵而放大請求量。
 // 內部 cron 排程（每 10 分鐘一次）不受此限制，一律照排程執行。
 // 這是單一長駐 Node process（非 serverless），模組層級變數在整個 process 生命週期內有效。
-const THROTTLE_MS = 60_000;
+const THROTTLE_MS = 15_000;
 let lastSyncCompletedAt = 0;
 
-// ─── 開盤時間判斷：收盤後股價不會變，不需要浪費請求額度重複查。
+// ─── 開盤時間判斷：背景 cron 用這個跳過收盤時段、節省請求額度。
+// 使用者手動按「更新」則不受開盤時間限制（見下方 isMarketOpenForCategory 呼叫處），
+// 讓使用者隨時都能強制重新查一次，不會因為「現在沒開盤」就整個沒反應。
 // 加密貨幣是 24 小時市場，不受此限制。
 function getTaipeiParts(now: Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -90,8 +95,20 @@ async function getTwseQuote(rawSymbol: string): Promise<number | null> {
       if (!item) continue;
       const lastTradedPrice = parseFloat(item.z);
       if (lastTradedPrice > 0) return lastTradedPrice;
-      const prevClose = parseFloat(item.y); // 今天還沒成交（例如剛開盤）時用昨收價當備援
-      if (prevClose > 0) return prevClose;
+
+      // z 有時會在兩次撮合之間短暫回傳 "-"（不是沒開盤，只是這個 snapshot 剛好卡在成交瞬間之間），
+      // 這種情況下用「昨收」當備援誤差可能很大（一天內可能已經漲跌好幾%），
+      // 改用最佳買賣價中價估算，比昨收更接近當下真實價格。
+      const bestAsk = parseFloat((item.a || "").split("_")[0]);
+      const bestBid = parseFloat((item.b || "").split("_")[0]);
+      const hasTraded = Number(item.v) > 0 || Number(item.tv) > 0; // 今天已經有成交量，代表盤中只是暫時抓不到 z
+      if (hasTraded && bestAsk > 0 && bestBid > 0) return (bestAsk + bestBid) / 2;
+      if (hasTraded && bestAsk > 0) return bestAsk;
+      if (hasTraded && bestBid > 0) return bestBid;
+
+      // 真的還沒開盤成交（沒有任何成交量）才退回昨收價當備援
+      const prevClose = parseFloat(item.y);
+      if (!hasTraded && prevClose > 0) return prevClose;
     } catch {
       // 忽略，換下一個 prefix 或最終回傳 null 讓呼叫端 fallback
     }
@@ -158,6 +175,74 @@ async function fetchBinanceTotalUsd(apiKey: string, apiSecret: string, priceMap:
   return totalUsd;
 }
 
+// 🌟 OKX：用帳戶餘額端點的 totalEq（OKX 已直接算好全帳戶美元權益），不用逐幣種換算
+async function fetchOkxTotalUsd(apiKey: string, apiSecret: string, passphrase: string): Promise<number> {
+  const crypto = await import('crypto');
+  const timestamp = new Date().toISOString();
+  const requestPath = '/api/v5/account/balance';
+  const prehash = `${timestamp}GET${requestPath}`;
+  const sign = crypto.default.createHmac('sha256', apiSecret).update(prehash).digest('base64');
+
+  const r = await fetch(`https://www.okx.com${requestPath}`, {
+    headers: {
+      'OK-ACCESS-KEY': apiKey,
+      'OK-ACCESS-SIGN': sign,
+      'OK-ACCESS-TIMESTAMP': timestamp,
+      'OK-ACCESS-PASSPHRASE': passphrase,
+      'Content-Type': 'application/json',
+    },
+  });
+  const data = await r.json() as any;
+  if (data.code !== '0') throw new Error('OKX API error: ' + JSON.stringify(data));
+  return Number(data.data?.[0]?.totalEq || 0);
+}
+
+// 🌟 Coinbase：/v2/exchange-rates 是公開端點（USD 對各幣別匯率），同一輪只查一次、所有帳戶共用，
+// 再用 /v2/accounts 抓各帳戶餘額換算成美元加總。
+async function fetchCoinbasePriceMap(): Promise<Map<string, number>> {
+  const priceMap = new Map<string, number>([['USD', 1], ['USDC', 1], ['USDT', 1], ['DAI', 1]]);
+  const r = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
+  const data = await r.json() as any;
+  const rates = data?.data?.rates || {};
+  for (const [ccy, rateStr] of Object.entries(rates)) {
+    const rate = Number(rateStr);
+    if (rate > 0) priceMap.set(ccy, 1 / rate);
+  }
+  return priceMap;
+}
+
+async function fetchCoinbaseTotalUsd(apiKey: string, apiSecret: string, priceMap: Map<string, number>): Promise<number> {
+  const crypto = await import('crypto');
+  let totalUsd = 0;
+  let nextUri: string | null = '/v2/accounts?limit=100';
+
+  while (nextUri) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const sign = crypto.default.createHmac('sha256', apiSecret).update(`${timestamp}GET${nextUri}`).digest('hex');
+    const r = await fetch(`https://api.coinbase.com${nextUri}`, {
+      headers: {
+        'CB-ACCESS-KEY': apiKey,
+        'CB-ACCESS-SIGN': sign,
+        'CB-ACCESS-TIMESTAMP': timestamp,
+        'CB-VERSION': '2023-01-01',
+      },
+    });
+    const data = await r.json() as any;
+    if (data.errors) throw new Error('Coinbase API error: ' + JSON.stringify(data.errors));
+
+    const accounts: Array<{ balance: { amount: string; currency: string } }> = data.data || [];
+    for (const acc of accounts) {
+      const amount = Number(acc.balance?.amount || 0);
+      if (amount <= 0) continue;
+      const price = priceMap.get(acc.balance.currency) || 0;
+      totalUsd += amount * price;
+    }
+    nextUri = data.pagination?.next_uri || null;
+  }
+
+  return totalUsd;
+}
+
 export async function GET(request: NextRequest) {
   // 這支會更新「全部使用者」的報價，開放給：內部 cron，或任一已登入使用者（App 內按「更新」時呼叫）。
   // 目的是擋掉匿名外部呼叫者無限次濫用，不是做逐使用者的權限區分。
@@ -177,6 +262,8 @@ export async function GET(request: NextRequest) {
     manualUpdates: [] as Array<{ symbol: string; category: string; price: number; currentValue: number }>,
     bitfinexUpdates: [] as Array<{ accountName: string; symbol: string; quantity: number; usdPrice: number; twdValue: number }>,
     binanceUpdates: [] as Array<{ accountName: string; quantity: number; twdValue: number }>,
+    okxUpdates: [] as Array<{ accountName: string; quantity: number; twdValue: number }>,
+    coinbaseUpdates: [] as Array<{ accountName: string; quantity: number; twdValue: number }>,
     databaseUpdate: null as any,
     errors: [] as string[],
   };
@@ -210,7 +297,9 @@ export async function GET(request: NextRequest) {
     for (const account of manualAccounts) {
       const symbol = account.symbol?.trim();
       if (!symbol) continue;
-      if (!isMarketOpenForCategory(account.category, now)) continue;
+      // 開盤時間限制只套用在背景 cron（省請求額度）；使用者手動按「更新」一律照查，
+      // 讓「按了卻沒反應」的情況不會發生，即使收盤價理論上不會變也讓他們查得到最新結果。
+      if (isCron && !isMarketOpenForCategory(account.category, now)) continue;
       const quoteSymbol = getYahooQuoteSymbol(account.category, symbol);
       if (!quoteSymbolMap.has(quoteSymbol)) quoteSymbolMap.set(quoteSymbol, { category: account.category, quoteSymbol, rawSymbol: symbol });
     }
@@ -399,11 +488,103 @@ export async function GET(request: NextRequest) {
     results.errors.push(`Binance sync error: ${error instanceof Error ? error.message : String(error)}`);
   }
 
+  // ─── OKX ─────────────────────────────────────────────────────
+  try {
+    const okxAccounts = await prisma.account.findMany({
+      where: { isActive: true, isApiConnected: true, apiSource: 'OKX', category: 'CRYPTO' },
+    });
+
+    for (const account of okxAccounts) {
+      try {
+        if (!account.apiKey || !account.apiSecret || !account.apiPassphrase) continue;
+        if (!usdToTwdRate) {
+          results.errors.push(`Skipped OKX account ${account.name}: no USD/TWD rate available`);
+          continue;
+        }
+
+        const totalUsdValue = await fetchOkxTotalUsd(
+          decryptOrLegacyPlaintext(account.apiKey.trim()),
+          decryptOrLegacyPlaintext(account.apiSecret.trim()),
+          decryptOrLegacyPlaintext(account.apiPassphrase.trim()),
+        );
+        if (totalUsdValue === 0) continue;
+
+        const twdValue = totalUsdValue * usdToTwdRate;
+        await prisma.account.update({
+          where: { id: account.id },
+          data: { quantity: totalUsdValue, currentPrice: 1, currentValue: twdValue, lastApiSyncAt: new Date(), apiSyncError: null },
+        });
+
+        results.okxUpdates.push({ accountName: account.name, quantity: totalUsdValue, twdValue });
+        console.log(`[OKX] 同步成功！帳戶: ${account.name}, 總計: ${totalUsdValue.toFixed(2)} USD`);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        results.errors.push(`[OKX] 帳戶 ${account.name} 串接失敗: ${errorMsg}`);
+        await prisma.account.update({
+          where: { id: account.id },
+          data: { apiSyncError: errorMsg },
+        }).catch(() => {});
+      }
+    }
+  } catch (error) {
+    results.errors.push(`OKX sync error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  // ─── Coinbase ────────────────────────────────────────────────
+  // exchange-rates 是公開端點，同一輪只查一次、所有帳戶共用，避免隨帳戶數重複打對外請求。
+  try {
+    const coinbaseAccounts = await prisma.account.findMany({
+      where: { isActive: true, isApiConnected: true, apiSource: 'COINBASE', category: 'CRYPTO' },
+    });
+
+    let sharedPriceMap = new Map<string, number>();
+    if (coinbaseAccounts.length > 0) {
+      try {
+        sharedPriceMap = await fetchCoinbasePriceMap();
+      } catch (e) {
+        results.errors.push(`Coinbase shared exchange-rates error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    for (const account of coinbaseAccounts) {
+      try {
+        if (!account.apiKey || !account.apiSecret) continue;
+        if (!usdToTwdRate) {
+          results.errors.push(`Skipped Coinbase account ${account.name}: no USD/TWD rate available`);
+          continue;
+        }
+
+        const totalUsdValue = await fetchCoinbaseTotalUsd(decryptOrLegacyPlaintext(account.apiKey.trim()), decryptOrLegacyPlaintext(account.apiSecret.trim()), sharedPriceMap);
+        if (totalUsdValue === 0) continue;
+
+        const twdValue = totalUsdValue * usdToTwdRate;
+        await prisma.account.update({
+          where: { id: account.id },
+          data: { quantity: totalUsdValue, currentPrice: 1, currentValue: twdValue, lastApiSyncAt: new Date(), apiSyncError: null },
+        });
+
+        results.coinbaseUpdates.push({ accountName: account.name, quantity: totalUsdValue, twdValue });
+        console.log(`[Coinbase] 同步成功！帳戶: ${account.name}, 總計: ${totalUsdValue.toFixed(2)} USD`);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        results.errors.push(`[Coinbase] 帳戶 ${account.name} 串接失敗: ${errorMsg}`);
+        await prisma.account.update({
+          where: { id: account.id },
+          data: { apiSyncError: errorMsg },
+        }).catch(() => {});
+      }
+    }
+  } catch (error) {
+    results.errors.push(`Coinbase sync error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
   results.databaseUpdate = {
     message: 'Database update completed',
     manualUpdates: results.manualUpdates.length,
     bitfinexUpdates: results.bitfinexUpdates.length,
     binanceUpdates: results.binanceUpdates.length,
+    okxUpdates: results.okxUpdates.length,
+    coinbaseUpdates: results.coinbaseUpdates.length,
   };
 
   lastSyncCompletedAt = Date.now();

@@ -7,6 +7,9 @@ import { getUserIdFromRequest } from "@/lib/auth";
 const SYMBOLS: Record<string, string> = {
   tw0050: "0050.TW", // 元大台灣50
   sp500: "^GSPC", // S&P 500
+  nasdaq: "^IXIC", // 那斯達克綜合指數
+  taiex: "^TWII", // 台灣加權指數
+  btc: "BTC-USD", // 比特幣
 };
 
 const twDateStr = (d: Date) =>

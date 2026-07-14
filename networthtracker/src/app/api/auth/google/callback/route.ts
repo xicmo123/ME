@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { exchangeGoogleCode, fetchGoogleUserInfo } from "@/lib/googleAuth";
 import { createToken, getUserIdFromRequest } from "@/lib/auth";
+import { getAppOrigin } from "@/lib/requestOrigin";
 
 declare global {
   var prisma: PrismaClient | undefined;
@@ -11,7 +12,7 @@ const prisma = globalThis.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
 
 function redirectWithError(request: NextRequest, message: string) {
-  const url = new URL("/", request.url);
+  const url = new URL("/", getAppOrigin(request));
   url.searchParams.set("authError", message);
   const response = NextResponse.redirect(url);
   response.cookies.set("google-oauth-state", "", { maxAge: 0, path: "/" });
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const tokens = await exchangeGoogleCode(code);
+    const tokens = await exchangeGoogleCode(code, request);
     const profile = await fetchGoogleUserInfo(tokens.access_token);
     if (!profile.email || !profile.email_verified) {
       return redirectWithError(request, "此 Google 帳號的電子郵件尚未驗證");
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
         return redirectWithError(request, "此 Google 帳號已綁定其他帳號");
       }
       await prisma.user.update({ where: { id: currentUserId }, data: { googleId: profile.sub } });
-      const response = NextResponse.redirect(new URL("/?linked=google", request.url));
+      const response = NextResponse.redirect(new URL("/?linked=google", getAppOrigin(request)));
       response.cookies.set("google-oauth-state", "", { maxAge: 0, path: "/" });
       return response;
     }
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = createToken(user.id);
-    const response = NextResponse.redirect(new URL("/", request.url));
+    const response = NextResponse.redirect(new URL("/", getAppOrigin(request)));
     response.cookies.set("auth-token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 7, path: "/" });
     response.cookies.set("google-oauth-state", "", { maxAge: 0, path: "/" });
     return response;

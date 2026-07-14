@@ -3,6 +3,7 @@ import YahooFinance from "yahoo-finance2"
 import { PrismaClient } from "@prisma/client"
 import { getUserIdFromRequest } from "@/lib/auth"
 import { encrypt } from "@/lib/crypto"
+import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan"
 
 declare global {
   // eslint-disable-next-line no-var
@@ -15,7 +16,9 @@ if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma
 const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"]
 const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"]
 
-async function fetchMarketPrice(category: string, rawSymbol: string) {
+// 回傳的 price 一律是「該標的原始幣別」的單價（跟帳戶 currency 一致，前端「即時股價」就是顯示這個），
+// value 才是換算成 TWD 後的單價，給呼叫端算 quantity * value = currentValue 用。
+async function fetchMarketPrice(category: string, rawSymbol: string): Promise<{ price: number; value: number }> {
   const symbol = category === "TAIWAN_STOCK" && !rawSymbol.toUpperCase().endsWith(".TW")
     ? rawSymbol.toUpperCase() + ".TW"
     : rawSymbol;
@@ -32,16 +35,16 @@ async function fetchMarketPrice(category: string, rawSymbol: string) {
     if (!usdPrice) throw new Error(`Unsupported or missing crypto price for ${symbol}`)
     const usdToTwdResult = await yahoo.quote("TWD=X")
     const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1)
-    return usdPrice * usdToTwdRate
+    return { price: usdPrice, value: usdPrice * usdToTwdRate }
   }
   const quoteResult = await yahoo.quote(symbol)
   const marketPrice = Number(quoteResult.regularMarketPrice || 0)
   if (category === "US_STOCK") {
     const usdToTwdResult = await yahoo.quote("TWD=X")
     const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1)
-    return marketPrice * usdToTwdRate
+    return { price: marketPrice, value: marketPrice * usdToTwdRate }
   }
-  return marketPrice
+  return { price: marketPrice, value: marketPrice }
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -52,11 +55,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== "object") return NextResponse.json({ message: "Invalid JSON payload." }, { status: 400 })
 
-  const { name, type, category, symbol, quantity, currency, isApiConnected, apiSource, apiKey, apiSecret, monthlyDeductionAmount, deductionDate } = body as {
+  const { name, type, category, symbol, quantity, currency, isApiConnected, apiSource, apiKey, apiSecret, apiPassphrase, monthlyDeductionAmount, deductionDate, interestRate, loanTermMonths, loanStartDate } = body as {
     name?: string; type?: string; category?: string; symbol?: string
     quantity?: number | string; currency?: string; isApiConnected?: boolean
-    apiSource?: string | null; apiKey?: string | null; apiSecret?: string | null
+    apiSource?: string | null; apiKey?: string | null; apiSecret?: string | null; apiPassphrase?: string | null
     monthlyDeductionAmount?: number | string; deductionDate?: number | string
+    interestRate?: number | string; loanTermMonths?: number | string; loanStartDate?: string | null
   }
 
   if (!name || !type || !category || !currency) {
@@ -77,12 +81,27 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   let deductionAmountValue: number | null = null
   let deductionDateValue: number | null = null
+  let interestRateValue: number | null = null
+  let loanTermMonthsValue: number | null = null
+  let loanStartDateValue: Date | null = null
 
   if (type === "LIABILITY") {
     deductionAmountValue = monthlyDeductionAmount === undefined || monthlyDeductionAmount === null || monthlyDeductionAmount === "" ? null : Number(monthlyDeductionAmount)
     deductionDateValue = deductionDate === undefined || deductionDate === null || deductionDate === "" ? null : Number(deductionDate)
     if (deductionAmountValue !== null && Number.isNaN(deductionAmountValue)) return NextResponse.json({ message: "Monthly deduction amount must be a valid number." }, { status: 400 })
     if (deductionDateValue !== null && (!Number.isInteger(deductionDateValue) || deductionDateValue < 1 || deductionDateValue > 31)) return NextResponse.json({ message: "Deduction date must be between 1 and 31." }, { status: 400 })
+
+    // 利率、期數、起算日都是非必填：只是選填的補充資訊，用來讓自動扣款拆分本金/利息、顯示還款進度
+    interestRateValue = interestRate === undefined || interestRate === null || interestRate === "" ? null : Number(interestRate)
+    loanTermMonthsValue = loanTermMonths === undefined || loanTermMonths === null || loanTermMonths === "" ? null : Number(loanTermMonths)
+    if (interestRateValue !== null && (Number.isNaN(interestRateValue) || interestRateValue < 0)) return NextResponse.json({ message: "Interest rate must be a valid non-negative number." }, { status: 400 })
+    if (loanTermMonthsValue !== null && (!Number.isInteger(loanTermMonthsValue) || loanTermMonthsValue < 1)) return NextResponse.json({ message: "Loan term must be a positive integer." }, { status: 400 })
+
+    if (typeof loanStartDate === "string" && loanStartDate.trim()) {
+      const parsed = new Date(loanStartDate)
+      if (Number.isNaN(parsed.getTime())) return NextResponse.json({ message: "Loan start date must be a valid date." }, { status: 400 })
+      loanStartDateValue = parsed
+    }
   }
 
   const existingAccount = await prisma.account.findFirst({ where: { id, userId } })
@@ -93,9 +112,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   if (categoriesRequiringSymbol.includes(category) && !isApiMode) {
     try {
-      const fetchedPrice = await fetchMarketPrice(category, trimmedSymbol)
-      nextCurrentPrice = Number(fetchedPrice || 0)
-      nextCurrentValue = quantityValue * nextCurrentPrice
+      const { price, value } = await fetchMarketPrice(category, trimmedSymbol)
+      nextCurrentPrice = Number(price || 0)
+      nextCurrentValue = quantityValue * Number(value || 0)
     } catch (error) {
       console.error("Failed to refresh market price for updated account:", error)
       nextCurrentPrice = existingAccount.currentPrice ?? 0
@@ -104,6 +123,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   } else if (fixedValueCategories.includes(category)) {
     nextCurrentPrice = 1
     nextCurrentValue = quantityValue
+  }
+
+  // 「貸款總金額」（quantityValue）是本金，填了起算日+扣款日就自動算出目前應有餘額取代總金額顯示；
+  // 沒填起算日就維持舊行為（總金額本身當作目前餘額，用手動/自動扣款遞減）。
+  if (type === "LIABILITY" && loanStartDateValue && deductionDateValue != null && deductionAmountValue != null) {
+    const n = calcPaidInstallments(loanStartDateValue, deductionDateValue)
+    const cappedN = loanTermMonthsValue != null ? Math.min(n, loanTermMonthsValue) : n
+    nextCurrentValue = calcLoanBalance(quantityValue, deductionAmountValue, interestRateValue, cappedN)
   }
 
   const updatedAccount = await prisma.account.update({
@@ -118,12 +145,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       // 前端不會再收到明碼，編輯時若欄位留空代表「不變更」，沿用資料庫既有的加密值
       apiKey: isApiMode ? (apiKey?.trim() ? encrypt(apiKey.trim()) : existingAccount.apiKey) : null,
       apiSecret: isApiMode ? (apiSecret?.trim() ? encrypt(apiSecret.trim()) : existingAccount.apiSecret) : null,
+      apiPassphrase: isApiMode ? (apiPassphrase?.trim() ? encrypt(apiPassphrase.trim()) : existingAccount.apiPassphrase) : null,
       monthlyDeductionAmount: deductionAmountValue,
       deductionDate: deductionDateValue,
+      interestRate: interestRateValue,
+      loanTermMonths: loanTermMonthsValue,
+      loanStartDate: loanStartDateValue,
     },
   })
 
-  const { apiKey: _apiKey, apiSecret: _apiSecret, ...sanitizedAccount } = updatedAccount
+  const { apiKey: _apiKey, apiSecret: _apiSecret, apiPassphrase: _apiPassphrase, ...sanitizedAccount } = updatedAccount
   return NextResponse.json({ ...sanitizedAccount, hasApiCredentials: Boolean(updatedAccount.apiKey && updatedAccount.apiSecret) }, { status: 200 })
 }
 

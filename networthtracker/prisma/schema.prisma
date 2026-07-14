@@ -52,6 +52,7 @@ model User {
   // 未来扩展：Google/GitHub OAuth
   googleId      String?  @unique
   githubId      String?  @unique
+  appleId       String?  @unique
   
   emailVerified Boolean  @default(false)
   verificationToken String? // 邮件验证 token
@@ -62,7 +63,6 @@ model User {
   history       AssetHistory[]
   transactions  Transaction[]
   goals         Goal[]
-  calendarEvents CalendarEvent[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -87,11 +87,15 @@ model Account {
   apiSource     String?
   apiKey        String?
   apiSecret     String?
+  apiPassphrase String?
   lastApiSyncAt DateTime?
   apiSyncError  String?
   monthlyDeductionAmount Float?
   deductionDate Int?
   deductFromAccountId String?
+  interestRate  Float?          // 年利率（%），非必填；有填才會在自動扣款時拆分本金/利息
+  loanTermMonths Int?           // 總期數（月），非必填；只用來顯示「已繳/總期數」進度
+  loanStartDate DateTime?       // 貸款起算日（=第 1 期扣款日），非必填；有填才能算出「已繳幾期」，不然只能用交易紀錄筆數概算
   isActive      Boolean         @default(true)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -165,20 +169,3 @@ model Goal {
   @@index([userId])
 }
 
-model CalendarEvent {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  title       String   // 事件標題，例如「繳房貸」
-  note        String?  // 備註
-  date        DateTime // 事件日期（重複事件的起始日）
-  recurrence  String   @default("NONE") // NONE / DAILY / WEEKLY / MONTHLY
-  weeklyDays  String?  // recurrence = WEEKLY 時，逗號分隔的星期幾（0=日 ... 6=六），例如 "1,2,3,4,5"
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([userId])
-  @@index([date])
-}

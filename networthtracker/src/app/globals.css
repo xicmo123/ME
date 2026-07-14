@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -28,6 +27,8 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -50,29 +51,40 @@
 }
 
 :root {
+  /* 品牌色 (Zeno Worth) — 金銅／磚紅／墨綠黑／鼠尾草綠／奶油 */
+  --brand-gold: #B8933C;
+  --brand-brick: #A24936;
+  --brand-ink: #1C1F1A;
+  --brand-sage: #4F7B5E;
+  --brand-cream: #FFF3D6;
+  --brand-slate-blue: #5A7DA0;
+  --brand-warm-grey: #8A8F82;
+
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: var(--brand-gold);
+  --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --success: var(--brand-sage);
+  --success-foreground: oklch(0.985 0 0);
+  --destructive: var(--brand-brick);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --chart-1: var(--brand-gold);
+  --chart-2: var(--brand-sage);
+  --chart-3: var(--brand-brick);
+  --chart-4: var(--brand-slate-blue);
+  --chart-5: var(--brand-warm-grey);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
@@ -91,23 +103,25 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: var(--brand-gold);
+  --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  --success: #7FAE8F;
+  --success-foreground: oklch(0.145 0 0);
+  --destructive: #C1594A;
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --chart-1: var(--brand-gold);
+  --chart-2: #7FAE8F;
+  --chart-3: #C1594A;
+  --chart-4: var(--brand-slate-blue);
+  --chart-5: var(--brand-warm-grey);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -135,7 +149,7 @@
    ========================================================================== */
 
 .theme-pixel {
-  font-family: 'Press Start 2P', 'DotGothic16', "Courier New", Courier, monospace, "微軟正黑體" !important;
+  font-family: var(--font-pixel-body), var(--font-pixel-heading), "Courier New", Courier, monospace, "微軟正黑體" !important;
   --radius: 0px !important;
   --radius-sm: 0px !important;
   --radius-md: 0px !important;
@@ -147,7 +161,7 @@
 
 /* 強制所有文字在像素模式下套用像素風字體 */
 .theme-pixel * {
-  font-family: 'Press Start 2P', 'DotGothic16', "Courier New", Courier, monospace, "微軟正黑體" !important;
+  font-family: var(--font-pixel-body), var(--font-pixel-heading), "Courier New", Courier, monospace, "微軟正黑體" !important;
   border-radius: 0px !important;
 }
 
