@@ -43,7 +43,6 @@ const BENCHMARKS: Record<string, { label: string; color: string }> = {
 // 淨資產主卡配色方案
 const HERO_THEMES = {
   cream: {
-    label: "香檳金 + 奶油底",
     background: "linear-gradient(135deg, #F0DFB0 0%, #DFC583 50%, #C9A659 100%)",
     text: "#3B2E12",
     shadow: "0 18px 38px -16px rgba(201,166,89,0.5)",
@@ -61,7 +60,6 @@ const HERO_THEMES = {
     toggleIdleText: "#3B2E12",
   },
   noir: {
-    label: "暗夜金（墨黑底）",
     background: "linear-gradient(135deg, #262010 0%, #1C1F1A 55%, #14150F 100%)",
     text: "#E8C874",
     shadow: "0 18px 38px -16px rgba(0,0,0,0.6)",
@@ -191,7 +189,6 @@ export default function HomePage() {
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [heroTheme, setHeroTheme] = useState<"cream" | "noir">("noir");
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [showHistoryForm, setShowHistoryForm] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -397,7 +394,6 @@ export default function HomePage() {
     void initNativeShell(dark);
 
     if (localStorage.getItem("networth-display-currency") === "USD") setDisplayCurrency("USD");
-    if (localStorage.getItem("networth-hero-theme") === "cream") setHeroTheme("cream");
     const savedNotify = localStorage.getItem("networth-event-notify") === "true";
     setNotifyEnabled(savedNotify);
     const savedPrefsRaw = localStorage.getItem("networth-event-notify-prefs");
@@ -1137,6 +1133,8 @@ export default function HomePage() {
 
   // 圓形圖示按鈕（fintech 風的 header 按鈕）
   const iconBtn = "h-10 w-10 rounded-full bg-white dark:bg-[#151923] border border-black/[0.05] dark:border-white/[0.07] flex items-center justify-center transition-colors";
+  // 淨資產主卡配色隨明暗模式切換：淺色模式用香檳金奶油底，深色模式用暗夜金
+  const heroTheme = isDarkMode ? "noir" : "cream";
 
   return (
     <div className={`h-screen overflow-hidden ${bg} ${textPrimary} flex flex-col`} style={{ paddingTop: "env(safe-area-inset-top)" }}>
@@ -1163,19 +1161,6 @@ export default function HomePage() {
                   {isDarkMode ? <Moon className="h-[18px] w-[18px]" /> : <Sun className="h-[18px] w-[18px]" />}
                 </button>
               </div>
-            </div>
-
-            {/* 淨資產主卡配色切換 */}
-            <div className="flex items-center gap-1.5 -mb-2">
-              {(Object.keys(HERO_THEMES) as (keyof typeof HERO_THEMES)[]).map((key) => (
-                <button
-                  key={key}
-                  onClick={() => { setHeroTheme(key); localStorage.setItem("networth-hero-theme", key); }}
-                  className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${heroTheme === key ? "border-[#B8933C] bg-[#B8933C]/15 text-[#8B6B1F] dark:text-[#E8C874]" : `border-black/10 dark:border-white/15 ${textMuted}`}`}
-                >
-                  {HERO_THEMES[key].label}
-                </button>
-              ))}
             </div>
 
             {/* 淨資產主卡 — 金色 hero，右上角一排操作 icon（更新價格／幣別切換／新增資產） */}
