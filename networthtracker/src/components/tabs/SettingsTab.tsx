@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X, Check } from "lucide-react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X } from "lucide-react";
 import { isNative } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
+import { HERO_THEMES } from "@/lib/hero-theme";
 
 const Switch = ({ on }: { on: boolean }) => (
   <span className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors ${on ? "bg-[#4F7B5E]" : "bg-black/15 dark:bg-white/20"}`}>
@@ -104,6 +105,8 @@ export function SettingsTab({
 }) {
   const [showPlanDetails, setShowPlanDetails] = useState(false);
   const isPro = currentUser?.entitlements?.isPro ?? false;
+  const heroTheme = isDarkMode ? "noir" : "cream";
+  const hero = HERO_THEMES[heroTheme];
 
   function handleSelectPlan(planTitle: string) {
     showToast(`${planTitle}付款功能即將推出，敬請期待`, "success");
@@ -114,26 +117,27 @@ export function SettingsTab({
       <div className="pb-2">
         <h2 className="font-display text-[22px] font-bold tracking-tight">設定</h2>
       </div>
-      <div className={`${surface} rounded-2xl overflow-hidden`}>
-        <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
-          <p className={sectionLabel}>帳戶方案</p>
+      <button
+        onClick={() => setShowPlanDetails(true)}
+        className="w-full text-left relative overflow-hidden rounded-[24px] p-5 transition-transform active:scale-[0.99] cursor-pointer"
+        style={{ background: hero.background, color: hero.text, boxShadow: `${hero.shadow}, ${hero.ring}` }}
+      >
+        <Crown className="absolute -right-3 -bottom-3 h-24 w-24 opacity-[0.12]" style={{ color: hero.text }} />
+        <div className="relative flex items-center gap-2 mb-2">
+          <span className="font-display text-base font-bold tracking-tight">Zeno</span>
+          <span className="font-mono-ledger text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
         </div>
-        <button onClick={() => setShowPlanDetails(true)} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-          <div className="flex items-center gap-3">
-            <Crown className="h-4 w-4" style={{ color: gold }} />
-            <div className="text-left">
-              <span className="text-sm font-medium block">目前方案</span>
-              <span className={`text-xs ${textMuted}`}>查看方案內容與升級選項</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${isPro ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
-              {isPro ? "PRO 版" : "免費版"}
-            </span>
-            <ChevronRight className={`h-4 w-4 ${textMuted}`} />
-          </div>
-        </button>
-      </div>
+        <p className="relative text-[15px] font-bold leading-snug max-w-[85%]">
+          {isPro ? "你已解鎖 Zeno Pro，感謝支持！" : "升級成 Zeno Pro 版"}
+        </p>
+        <p className="relative text-xs opacity-75 mt-1 max-w-[80%] leading-relaxed">
+          {isPro ? "所有進階功能已完整開放，持續優化中" : "無限帳戶、無限目標，完整掌控你的資產"}
+        </p>
+        <div className="relative flex items-center gap-1 mt-3.5 text-xs font-semibold">
+          <span>{isPro ? "查看方案內容" : "查看方案與升級選項"}</span>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </div>
+      </button>
       <div className={`${surface} rounded-2xl overflow-hidden`}>
         <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
           <p className={sectionLabel}>外觀</p>
@@ -347,11 +351,17 @@ export function SettingsTab({
             </div>
 
             <div className="p-5 space-y-5">
-              <div className="flex items-center justify-between">
-                <span className={`text-sm ${textMuted}`}>目前方案</span>
-                <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${isPro ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
-                  {isPro ? "PRO 版" : "免費版"}
-                </span>
+              <div
+                className="relative overflow-hidden rounded-[20px] p-4"
+                style={{ background: hero.background, color: hero.text, boxShadow: `${hero.shadow}, ${hero.ring}` }}
+              >
+                <Crown className="absolute -right-3 -bottom-3 h-20 w-20 opacity-[0.12]" style={{ color: hero.text }} />
+                <div className="relative flex items-center gap-2 mb-1.5">
+                  <span className="font-display text-sm font-bold tracking-tight">Zeno</span>
+                  <span className="font-mono-ledger text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
+                </div>
+                <p className="relative text-sm font-bold">{isPro ? "你已經是 Zeno Pro 版" : "升級成 Zeno Pro 版"}</p>
+                <p className="relative text-xs opacity-75 mt-0.5">{isPro ? "感謝支持，所有進階功能已解鎖" : "無限帳戶、無限目標，完整掌控你的資產"}</p>
               </div>
 
               <div>
@@ -400,12 +410,6 @@ export function SettingsTab({
                 </div>
               )}
 
-              {isPro && (
-                <div className="flex items-center gap-2 p-4 rounded-xl bg-[#4F7B5E]/10 text-[#4F7B5E]">
-                  <Check className="h-4 w-4 shrink-0" />
-                  <span className="text-sm font-medium">你已經是 PRO 版，感謝支持！</span>
-                </div>
-              )}
             </div>
           </div>
         </div>
