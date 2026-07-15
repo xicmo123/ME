@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
 import CountUp from "react-countup";
-import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -84,6 +84,17 @@ const HERO_THEMES = {
     toggleIdleText: "#E8C874",
   },
 } as const;
+
+// 降級後超過免費方案上限的既有項目：保留資料不刪，但蓋上霧面遮罩＋鎖頭，點擊導去設定頁看方案
+const LockedOverlay = ({ onClick }: { onClick: () => void }) => (
+  <button
+    onClick={onClick}
+    className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-[inherit] backdrop-blur-sm bg-white/70 dark:bg-black/60 cursor-pointer"
+  >
+    <Lock className="h-4 w-4" style={{ color: "#B8933C" }} />
+    <span className="text-[10px] font-bold" style={{ color: "#B8933C" }}>升級 PRO 解鎖</span>
+  </button>
+);
 
 const FontStyles = () => (
   <style jsx global>{`
@@ -1066,6 +1077,21 @@ export default function HomePage() {
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
   }, []);
 
+  // 降級（或本來就超過免費上限）後，保留最早建立的 N 筆維持可用，其餘蓋上鎖頭遮罩而非直接刪除
+  const lockedGoalIds = useMemo(() => {
+    const max = currentUser?.entitlements?.limits.maxGoals;
+    if (max == null) return new Set<string>();
+    return new Set(goals.slice(max).map((g: any) => g.id));
+  }, [goals, currentUser]);
+
+  const lockedAccountIds = useMemo(() => {
+    const max = currentUser?.entitlements?.limits.maxAccounts;
+    if (max == null) return new Set<string>();
+    const active = accounts.filter((a: any) => a.isActive !== false);
+    const byCreatedAsc = [...active].sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return new Set(byCreatedAsc.slice(max).map((a: any) => a.id));
+  }, [accounts, currentUser]);
+
   const bg = "bg-[#EEF0EC] dark:bg-[#0B0D12]";
   // 卡片改走 fintech 扁平風：白底＋柔和陰影，不再用漸層描邊（圓角由各處自帶的 rounded-* 決定）
   const surface = "bg-white dark:bg-[#151923] shadow-[0_10px_30px_-14px_rgba(28,31,26,0.16)] dark:shadow-[0_10px_30px_-14px_rgba(0,0,0,0.55)]";
@@ -1304,7 +1330,8 @@ export default function HomePage() {
             ) : (
               <div className={`${surface} rounded-[24px] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.05]`}>
                 {goals.map((goal: any) => (
-                  <div key={goal.id} className="px-4 py-3.5 flex items-center gap-3">
+                  <div key={goal.id} className="relative px-4 py-3.5 flex items-center gap-3">
+                    {lockedGoalIds.has(goal.id) && <LockedOverlay onClick={() => setActiveTab("settings")} />}
                     <div className="shrink-0 flex flex-col items-center gap-0.5">
                       <EggChick progress={goal.progress} size={30} />
                       <span className="text-[8px] font-bold" style={{ color: goal.progress >= 100 ? "#4F7B5E" : gold }}>
@@ -1413,6 +1440,7 @@ export default function HomePage() {
                       const isLiability = group.title === "負債總額";
                       return (
                         <div key={card.id} className={`relative w-[196px] shrink-0 snap-start overflow-hidden rounded-[24px] p-4 pl-5 ${isLiability ? "bg-[#FCF4F2] dark:bg-[#1D1416] border border-[#A24936]/25 shadow-[0_10px_30px_-14px_rgba(28,31,26,0.16)] dark:shadow-[0_10px_30px_-14px_rgba(0,0,0,0.55)]" : surface}`}>
+                          {lockedAccountIds.has(card.account.id) && <LockedOverlay onClick={() => setActiveTab("settings")} />}
                           <span className="absolute inset-y-0 left-0 w-1" style={{ background: group.color }} />
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
