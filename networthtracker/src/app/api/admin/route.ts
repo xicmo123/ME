@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
         email: true,
         emailVerified: true,
         createdAt: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        subscriptionExpiresAt: true,
         _count: { select: { accounts: true, history: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -45,6 +48,9 @@ export async function GET(request: NextRequest) {
         email: true,
         emailVerified: true,
         createdAt: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        subscriptionExpiresAt: true,
         accounts: {
           where: {},  // 顯示所有資產，含停用的
           select: {
@@ -86,6 +92,26 @@ export async function POST(request: NextRequest) {
       data: { isActive: false },
     });
     return NextResponse.json({ message: "用戶已停用" });
+  }
+
+  // 手動調整用戶的訂閱方案（目前尚未接金流，這是唯一能把人設成 PRO 的地方）
+  if (action === "setSubscription" && targetUserId) {
+    const tier = data?.tier;
+    if (tier !== "FREE" && tier !== "PRO") {
+      return NextResponse.json({ message: "tier 必須是 FREE 或 PRO" }, { status: 400 });
+    }
+    const expiresAt = data?.expiresAt ? new Date(data.expiresAt) : null;
+    const user = await prisma.user.update({
+      where: { id: targetUserId },
+      data: {
+        subscriptionTier: tier,
+        subscriptionStatus: "ACTIVE",
+        subscriptionExpiresAt: expiresAt,
+        subscriptionProvider: "manual",
+      },
+      select: { id: true, email: true, subscriptionTier: true, subscriptionStatus: true, subscriptionExpiresAt: true },
+    });
+    return NextResponse.json(user);
   }
 
   // 刪除用戶（完全刪除，包含所有資料——schema 上關聯都是 onDelete: Cascade，刪 User 會自動連帶刪除）

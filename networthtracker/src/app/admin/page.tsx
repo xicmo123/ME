@@ -49,6 +49,16 @@ export default function AdminPage() {
     setSelectedUser(data);
   }
 
+  async function handleSetSubscription(userId: string, tier: "FREE" | "PRO") {
+    await fetch("/api/admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "setSubscription", targetUserId: userId, data: { tier } }),
+    });
+    await fetchUsers();
+    if (selectedUser?.id === userId) await fetchUser(userId);
+  }
+
   async function handleDisableUser(userId: string) {
     if (!confirm("確定要停用這個用戶的所有資產嗎？")) return;
     await fetch("/api/admin", {
@@ -166,7 +176,12 @@ export default function AdminPage() {
                 {users.map(user => (
                   <div key={user.id} className="bg-white dark:bg-[#12151C] border border-black/[0.08] dark:border-white/[0.08] rounded-sm p-5 flex items-center justify-between gap-4">
                     <div>
-                      <p className="font-semibold">{user.email}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold">{user.email}</p>
+                        <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${user.subscriptionTier === "PRO" ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
+                          {user.subscriptionTier === "PRO" ? "PRO" : "FREE"}
+                        </span>
+                      </div>
                       <p className="text-xs text-[#6B7066] dark:text-[#8A8F82] mt-1 font-mono">
                         ID: {user.id} · 資產 {user._count.accounts} 筆 · 歷史 {user._count.history} 筆
                       </p>
@@ -175,6 +190,12 @@ export default function AdminPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleSetSubscription(user.id, user.subscriptionTier === "PRO" ? "FREE" : "PRO")}
+                        className="px-3 py-2 text-sm font-semibold border border-[#B8933C]/40 text-[#B8933C] rounded-sm hover:bg-[#B8933C]/10 transition-all cursor-pointer"
+                      >
+                        {user.subscriptionTier === "PRO" ? "降為 FREE" : "升級為 PRO"}
+                      </button>
                       <button onClick={() => fetchUser(user.id)} className={btnPrimary}>
                         <Eye className="h-4 w-4 inline mr-1" /> 查看
                       </button>
@@ -202,13 +223,24 @@ export default function AdminPage() {
             <div className="bg-white dark:bg-[#12151C] border border-black/[0.08] dark:border-white/[0.08] rounded-sm p-6 mb-6">
               <div className="flex items-start justify-between">
                 <div>
-                  <h2 className="text-xl font-bold">{selectedUser.email}</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold">{selectedUser.email}</h2>
+                    <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${selectedUser.subscriptionTier === "PRO" ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
+                      {selectedUser.subscriptionTier === "PRO" ? "PRO" : "FREE"}
+                    </span>
+                  </div>
                   <p className="text-xs font-mono text-[#6B7066] dark:text-[#8A8F82] mt-1">ID: {selectedUser.id}</p>
                   <p className="text-sm text-[#6B7066] dark:text-[#8A8F82] mt-1">
                     建立於 {new Date(selectedUser.createdAt).toLocaleString("zh-TW")}
                   </p>
                 </div>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => handleSetSubscription(selectedUser.id, selectedUser.subscriptionTier === "PRO" ? "FREE" : "PRO")}
+                    className="px-3 py-2 text-sm font-semibold border border-[#B8933C]/40 text-[#B8933C] rounded-sm hover:bg-[#B8933C]/10 transition-all cursor-pointer"
+                  >
+                    {selectedUser.subscriptionTier === "PRO" ? "降為 FREE" : "升級為 PRO"}
+                  </button>
                   <button onClick={() => handleDisableUser(selectedUser.id)} className="px-3 py-2 text-sm font-semibold border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-sm hover:bg-amber-500/10 transition-all cursor-pointer">
                     停用用戶
                   </button>
