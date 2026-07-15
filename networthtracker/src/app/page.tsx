@@ -8,7 +8,7 @@ import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, R
 import { TW_BANKS } from "@/lib/tw-banks";
 import { HERO_THEMES } from "@/lib/hero-theme";
 import { Skeleton } from "@/components/ui/skeleton";
-import { GoogleIcon, AppleIcon } from "@/components/icons";
+import { GoogleIcon, AppleIcon, CurrencyFlag } from "@/components/icons";
 import { SettingsTab } from "@/components/tabs/SettingsTab";
 import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder } from "@/lib/native";
 
@@ -23,7 +23,18 @@ const categoryOptions = [
   { value: "MORTGAGE", label: "房貸" }, { value: "CAR_LOAN", label: "車貸" },
   { value: "CREDIT_LOAN", label: "信用貸款" },
 ];
-const currencyOptions = [{ value: "TWD", label: "TWD" }, { value: "USD", label: "USD" }];
+const currencyOptions = [
+  { value: "TWD", label: "TWD" },
+  { value: "USD", label: "USD" },
+  { value: "JPY", label: "JPY" },
+  { value: "EUR", label: "EUR" },
+  { value: "GBP", label: "GBP" },
+  { value: "HKD", label: "HKD" },
+  { value: "CNY", label: "CNY" },
+  { value: "AUD", label: "AUD" },
+  { value: "CAD", label: "CAD" },
+  { value: "SGD", label: "SGD" },
+];
 const categoryLabelMap: Record<string, string> = categoryOptions.reduce((acc, curr) => ({ ...acc, [curr.value]: curr.label }), {});
 const symbolRequiredCategories = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
 const fixedCurrencyCategories = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
@@ -33,7 +44,7 @@ const categoriesByType: Record<string, string[]> = {
   ASSET: ["CASH", "BANK_ACCOUNT", "TAIWAN_STOCK", "US_STOCK", "CRYPTO", "FIXED_ASSET", "RECEIVABLE"],
   LIABILITY: ["PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"],
 };
-const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "0", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: "", deductionDate: "", interestRate: "", loanTermMonths: "", loanStartDate: "" };
+const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "0", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: "", deductionDate: "", interestRate: "", loanTermMonths: "", loanStartDate: "", deductFromAccountId: "" };
 const exchangesRequiringPassphrase = ["OKX"];
 
 type Tab = "overview" | "assets" | "trends" | "settings";
@@ -145,6 +156,7 @@ export default function HomePage() {
   const [customRangeDraft, setCustomRangeDraft] = useState<{ start: string; end: string }>({ start: "", end: "" });
   const [trendView, setTrendView] = useState<"net" | "breakdown">("net");
   const [activeBenchmarks, setActiveBenchmarks] = useState<string[]>([]);
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [benchmarkData, setBenchmarkData] = useState<Record<string, { date: string; level: number }[]>>({});
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -169,9 +181,11 @@ export default function HomePage() {
   const [notifyPrefs, setNotifyPrefs] = useState<Record<string, boolean>>({ EARNINGS: true, EX_DIVIDEND: true, DIVIDEND_PAY: true });
   const [notifyExpanded, setNotifyExpanded] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
-  const [stockEvents, setStockEvents] = useState<{ symbol: string; name: string; date: string; type: "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND_PAY" }[]>([]);
+  type StockEvent = { symbol: string; name: string; date: string; type: "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND_PAY"; amountPerShare?: number; amountPerShareIsAnnualized?: boolean };
+  const [stockEvents, setStockEvents] = useState<StockEvent[]>([]);
   const [stockEventsLoading, setStockEventsLoading] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  const [selectedEventDetail, setSelectedEventDetail] = useState<StockEvent | null>(null);
   const [dailyReminderEnabled, setDailyReminderEnabled] = useState(false);
   const [dailyReminderTime, setDailyReminderTime] = useState("21:00");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -181,12 +195,13 @@ export default function HomePage() {
   const [itemDeleting, setItemDeleting] = useState(false);
   const [accountShelfProgress, setAccountShelfProgress] = useState<Record<string, number>>({});
   const [collapsedAccountGroups, setCollapsedAccountGroups] = useState<Record<string, boolean>>({});
+  const [detailGroupTitle, setDetailGroupTitle] = useState<string | null>(null);
   const [accountSearch, setAccountSearch] = useState("");
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<{
     email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean;
-    entitlements?: { tier: "FREE" | "PRO"; isPro: boolean; limits: { maxAccounts: number | null; maxGoals: number | null } };
+    entitlements?: { tier: "FREE" | "PRO"; isPro: boolean; limits: { maxAccounts: number | null; maxGoals: number | null }; manualSyncLimitPer4Hours?: number | null };
   } | null>(null);
   const [googleUnlinking, setGoogleUnlinking] = useState(false);
   const [appleUnlinking, setAppleUnlinking] = useState(false);
@@ -646,7 +661,7 @@ export default function HomePage() {
   function resetForm() { setFormData(defaultForm); setEditingAccountId(null); setEditingHasApiCredentials(false); setShowForm(false); }
 
   function startEdit(account: any) {
-    setFormData({ name: account.name, type: account.type, category: account.category, symbol: account.symbol ?? "", quantity: String(account.quantity ?? account.currentValue ?? 0), currency: account.currency, isApiConnected: Boolean(account.isApiConnected), apiSource: account.apiSource ?? "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: account.monthlyDeductionAmount ? String(account.monthlyDeductionAmount) : "", deductionDate: account.deductionDate ? String(account.deductionDate) : "", interestRate: account.interestRate != null ? String(account.interestRate) : "", loanTermMonths: account.loanTermMonths != null ? String(account.loanTermMonths) : "", loanStartDate: account.loanStartDate ? String(account.loanStartDate).slice(0, 10) : "" });
+    setFormData({ name: account.name, type: account.type, category: account.category, symbol: account.symbol ?? "", quantity: String(account.quantity ?? account.currentValue ?? 0), currency: account.currency, isApiConnected: Boolean(account.isApiConnected), apiSource: account.apiSource ?? "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: account.monthlyDeductionAmount ? String(account.monthlyDeductionAmount) : "", deductionDate: account.deductionDate ? String(account.deductionDate) : "", interestRate: account.interestRate != null ? String(account.interestRate) : "", loanTermMonths: account.loanTermMonths != null ? String(account.loanTermMonths) : "", loanStartDate: account.loanStartDate ? String(account.loanStartDate).slice(0, 10) : "", deductFromAccountId: account.deductFromAccountId ?? "" });
     setEditingAccountId(account.id); setEditingHasApiCredentials(Boolean(account.hasApiCredentials)); setShowForm(true); setError(null);
   }
 
@@ -664,7 +679,7 @@ export default function HomePage() {
       if (exchangesRequiringPassphrase.includes(formData.apiSource) && !formData.apiPassphrase.trim()) missing.push("Passphrase");
     }
     if (missing.length > 0) return setError(`請填寫以下欄位：${missing.join("、")}`);
-    const payload = { ...formData, quantity: isCryptoApiMode ? 0 : Number(formData.quantity || 0), symbol: isCryptoApiMode ? formData.apiSource : formData.symbol || null, monthlyDeductionAmount: formData.monthlyDeductionAmount.trim() === "" ? null : Number(formData.monthlyDeductionAmount), deductionDate: formData.deductionDate.trim() === "" ? null : Number(formData.deductionDate), interestRate: formData.interestRate.trim() === "" ? null : Number(formData.interestRate), loanTermMonths: formData.loanTermMonths.trim() === "" ? null : Number(formData.loanTermMonths), loanStartDate: formData.loanStartDate.trim() === "" ? null : formData.loanStartDate };
+    const payload = { ...formData, quantity: isCryptoApiMode ? 0 : Number(formData.quantity || 0), symbol: isCryptoApiMode ? formData.apiSource : formData.symbol || null, monthlyDeductionAmount: formData.monthlyDeductionAmount.trim() === "" ? null : Number(formData.monthlyDeductionAmount), deductionDate: formData.deductionDate.trim() === "" ? null : Number(formData.deductionDate), interestRate: formData.interestRate.trim() === "" ? null : Number(formData.interestRate), loanTermMonths: formData.loanTermMonths.trim() === "" ? null : Number(formData.loanTermMonths), loanStartDate: formData.loanStartDate.trim() === "" ? null : formData.loanStartDate, deductFromAccountId: formData.deductFromAccountId.trim() === "" ? null : formData.deductFromAccountId };
     setLoading(true);
     try {
       const res = await fetch(editingAccountId ? `/api/accounts/${editingAccountId}` : "/api/accounts", { method: editingAccountId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -708,6 +723,11 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/test-fetch-prices");
       if (!res.ok) {
+        if (res.status === 402) {
+          const data = await res.json().catch(() => null);
+          showToast(data?.message || "免費方案已達本次可手動同步的次數上限，升級 Pro 解鎖即時自動更新", "error");
+          return;
+        }
         showToast(res.status === 429 ? "更新失敗，API 已達使用額度上限，請稍後再試" : "更新失敗，價格來源暫時無法使用", "error");
         return;
       }
@@ -945,6 +965,70 @@ export default function HomePage() {
   function formatPct(v: number) { return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`; }
   function toggleBenchmark(k: string) {
     setActiveBenchmarks((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+  }
+
+  function renderTrendChartBody(heightClass: string) {
+    return (
+      <div className={heightClass}>
+        {mounted && compareMode && comparisonData.length > 0 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={comparisonData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={(v) => `${Math.round(v)}%`} width={44} />
+              <ReferenceLine y={0} stroke="#8A8F82" strokeDasharray="3 3" strokeOpacity={0.5} />
+              <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val, name) => [formatPct(Number(val)), name === "you" ? "你的淨值" : BENCHMARKS[String(name)]?.label ?? String(name)]} />
+              <Line type="monotone" dataKey="you" stroke={gold} strokeWidth={2.5} dot={false} />
+              {activeBenchmarks.map((k) => (
+                <Line key={k} type="monotone" dataKey={k} stroke={BENCHMARKS[k].color} strokeWidth={2} dot={false} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        ) : mounted && compareMode && comparisonBaseTooSmall ? (
+          <div className="h-full flex items-center justify-center">
+            <p className={`text-sm ${textMuted}`}>起始淨值過低，無法以百分比比較走勢</p>
+          </div>
+        ) : mounted && trendView === "breakdown" && assetLiabData.length > 0 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={assetLiabData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="assetsGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#4F7B5E" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#4F7B5E" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="liabGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#A24936" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#A24936" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
+              <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val, name) => [`NT$ ${formatCurrency(Number(val))}`, name === "assets" ? "總資產" : "總負債"]} />
+              <Area type="monotone" dataKey="assets" stroke="#4F7B5E" strokeWidth={2} fillOpacity={1} fill="url(#assetsGrad)" />
+              <Area type="monotone" dataKey="liabilities" stroke="#A24936" strokeWidth={2} fillOpacity={1} fill="url(#liabGrad)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : mounted && chartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={gold} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={gold} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
+              <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]} />
+              <Area type="monotone" dataKey="netWorth" stroke={gold} strokeWidth={2} fillOpacity={1} fill="url(#chartGrad)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            <p className={`text-sm ${textMuted}`}>尚無歷史資料</p>
+          </div>
+        )}
+      </div>
+    );
   }
 
   const accountGroups = [
@@ -1197,6 +1281,7 @@ export default function HomePage() {
                     onClick={handleSyncPrices}
                     disabled={syncing}
                     aria-label="更新價格"
+                    title={currentUser?.entitlements && !currentUser.entitlements.isPro ? `免費方案每 4 小時最多手動同步 ${currentUser.entitlements.manualSyncLimitPer4Hours ?? 3} 次` : undefined}
                     className="h-9 w-9 rounded-full flex items-center justify-center active:scale-95 transition-all"
                     style={{ background: HERO_THEMES[heroTheme].chipBtnBg }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = HERO_THEMES[heroTheme].chipBtnBgHover)}
@@ -1379,6 +1464,14 @@ export default function HomePage() {
                     </button>
                     <div className="flex items-baseline gap-3 shrink-0">
                       <span className={`font-mono-ledger text-xs font-semibold ${group.title === "負債總額" ? "text-[#A24936]" : ""}`}>{hideBalance ? "••••" : `NT$ ${formatCurrency(groupTotal)}`}</span>
+                      {group.cards.length > 0 && (
+                        <button
+                          onClick={() => setDetailGroupTitle(group.title)}
+                          className={`text-[11px] font-semibold hover:underline underline-offset-2 ${textMuted}`}
+                        >
+                          查看全部
+                        </button>
+                      )}
                       <button
                         onClick={() => { resetForm(); setFormData((f: any) => ({ ...f, type: group.defaultType, category: group.defaultCategory, currency: group.defaultCategory === "TAIWAN_STOCK" ? "TWD" : group.defaultCategory === "US_STOCK" || group.defaultCategory === "CRYPTO" ? "USD" : f.currency })); setShowForm(true); }}
                         className="text-[11px] font-semibold hover:underline underline-offset-2" style={{ color: gold }}
@@ -1434,6 +1527,11 @@ export default function HomePage() {
                               {card.account.interestRate != null && <span>利率 {card.account.interestRate}%</span>}
                               {card.account.interestRate != null && card.account.loanTermMonths != null && <span> · </span>}
                               {card.account.loanTermMonths != null && <span>已繳 {card.account.paidInstallments ?? 0}/{card.account.loanTermMonths} 期</span>}
+                            </p>
+                          )}
+                          {card.account.type === "LIABILITY" && card.account.deductFromAccountId && card.account.deductionDate != null && (
+                            <p className={`text-[10px] mt-0.5 truncate ${textMuted}`}>
+                              每月 {card.account.deductionDate} 日自動從「{accounts.find((a: any) => a.id === card.account.deductFromAccountId)?.name ?? "已刪除帳戶"}」扣款
                             </p>
                           )}
                           {card.account.isApiConnected && card.account.apiSyncError && (
@@ -1544,13 +1642,14 @@ export default function HomePage() {
                           .slice()
                           .sort((a, b) => a.date.localeCompare(b.date))
                           .map((ev, i) => (
-                            <div key={i} className={`${surface} rounded-xl p-4 flex items-center gap-3`}>
+                            <button key={i} onClick={() => setSelectedEventDetail(ev)} className={`w-full text-left ${surface} rounded-xl p-4 flex items-center gap-3`}>
                               <span className="h-2 w-2 rounded-full shrink-0" style={{ background: eventTypeMeta[ev.type].color }} />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold truncate">{ev.symbol} · {ev.name}</p>
                                 <p className={`text-xs ${textMuted}`}>{eventTypeMeta[ev.type].label} · {new Date(ev.date).toLocaleDateString("zh-TW", { month: "long", day: "numeric" })}</p>
                               </div>
-                            </div>
+                              <ChevronRight className={`h-4 w-4 shrink-0 ${textMuted}`} />
+                            </button>
                           ))}
                         {allCalendarEvents.length === 0 && (
                           <p className={`text-sm text-center py-4 ${textMuted}`}>本月暫無事件</p>
@@ -1621,6 +1720,15 @@ export default function HomePage() {
                   </button>
                 );
               })}
+              {compareMode && (
+                <button
+                  onClick={() => setIsChartExpanded(true)}
+                  aria-label="展開走勢圖"
+                  className={`ml-auto flex items-center justify-center h-7 w-7 rounded-full border border-black/10 dark:border-white/10 ${textMuted}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
+                </button>
+              )}
             </div>
 
             {/* 時間範圍 — segmented control */}
@@ -1696,65 +1804,7 @@ export default function HomePage() {
                   )}
                 </div>
               )}
-              <div className="h-[240px]">
-                {mounted && compareMode && comparisonData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={comparisonData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={(v) => `${Math.round(v)}%`} width={44} />
-                      <ReferenceLine y={0} stroke="#8A8F82" strokeDasharray="3 3" strokeOpacity={0.5} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val, name) => [formatPct(Number(val)), name === "you" ? "你的淨值" : BENCHMARKS[String(name)]?.label ?? String(name)]} />
-                      <Line type="monotone" dataKey="you" stroke={gold} strokeWidth={2.5} dot={false} />
-                      {activeBenchmarks.map((k) => (
-                        <Line key={k} type="monotone" dataKey={k} stroke={BENCHMARKS[k].color} strokeWidth={2} dot={false} />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : mounted && compareMode && comparisonBaseTooSmall ? (
-                  <div className="h-full flex items-center justify-center">
-                    <p className={`text-sm ${textMuted}`}>起始淨值過低，無法以百分比比較走勢</p>
-                  </div>
-                ) : mounted && trendView === "breakdown" && assetLiabData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={assetLiabData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="assetsGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#4F7B5E" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="#4F7B5E" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="liabGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#A24936" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="#A24936" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val, name) => [`NT$ ${formatCurrency(Number(val))}`, name === "assets" ? "總資產" : "總負債"]} />
-                      <Area type="monotone" dataKey="assets" stroke="#4F7B5E" strokeWidth={2} fillOpacity={1} fill="url(#assetsGrad)" />
-                      <Area type="monotone" dataKey="liabilities" stroke="#A24936" strokeWidth={2} fillOpacity={1} fill="url(#liabGrad)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : mounted && chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={gold} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={gold} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickFormatter={formatCompactNumber} width={44} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)", background: isDarkMode ? "#12151C" : "#FFFFFF", fontFamily: "IBM Plex Mono", fontSize: "12px", boxShadow: "none" }} labelFormatter={(l) => String(l)} formatter={(val) => [`NT$ ${formatCurrency(Number(val))}`, "淨資產"]} />
-                      <Area type="monotone" dataKey="netWorth" stroke={gold} strokeWidth={2} fillOpacity={1} fill="url(#chartGrad)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center">
-                    <p className={`text-sm ${textMuted}`}>尚無歷史資料</p>
-                  </div>
-                )}
-              </div>
+              {renderTrendChartBody("h-[240px]")}
               {compareMode && benchmarkVerdicts.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-black/[0.06] dark:border-white/[0.06] space-y-1.5">
                   {benchmarkVerdicts.map((v) => (
@@ -1996,7 +2046,10 @@ export default function HomePage() {
                   ) : (
                     <div>
                       <label className={`block text-xs mb-2 ${sectionLabel}`}>幣別</label>
-                      <select value={formData.currency} onChange={(e) => setFormData({ ...formData, currency: e.target.value })} className={inputCls}>{currencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+                      <div className="flex items-center gap-2">
+                        <CurrencyFlag currency={formData.currency} className="text-lg shrink-0" />
+                        <select value={formData.currency} onChange={(e) => setFormData({ ...formData, currency: e.target.value })} className={inputCls}>{currencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+                      </div>
                     </div>
                   )}
                   {!showApiFields && (
@@ -2088,6 +2141,16 @@ export default function HomePage() {
                     <p className={`text-xs ${textMuted} -mt-2 sm:col-span-2`}>每月到扣款日，系統自動從{formData.type === "LIABILITY" ? "負債總額" : "帳戶餘額"}扣除。</p>
                     {formData.type === "LIABILITY" && (
                       <>
+                        <div className="sm:col-span-2">
+                          <label className={`block text-xs mb-2 ${sectionLabel}`}>扣款來源帳戶（選填）</label>
+                          <select value={formData.deductFromAccountId} onChange={(e) => setFormData({ ...formData, deductFromAccountId: e.target.value })} className={inputCls}>
+                            <option value="">不自動扣款（僅記錄負債本身）</option>
+                            {accounts.filter((a: any) => ["CASH", "BANK_ACCOUNT"].includes(a.category)).map((a: any) => (
+                              <option key={a.id} value={a.id}>{a.name}</option>
+                            ))}
+                          </select>
+                          <p className={`text-xs ${textMuted} mt-1.5`}>設定後，每月扣款日到期時會自動從此帳戶扣除對應金額，同步建立轉出紀錄。</p>
+                        </div>
                         <div>
                           <label className={`block text-xs mb-2 ${sectionLabel}`}>年利率 %（選填）</label>
                           <input type="number" inputMode="decimal" step="any" min="0" placeholder="例如：2.5" value={formData.interestRate} onChange={(e) => setFormData({ ...formData, interestRate: e.target.value })} className={`${inputCls} font-mono-ledger`} />
@@ -2111,6 +2174,115 @@ export default function HomePage() {
                   <button type="submit" disabled={loading} className="flex-1 py-3 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-white dark:text-black rounded-lg hover:opacity-90 active:scale-[0.97] transition-transform cursor-pointer">{loading ? "儲存中…" : "確認儲存"}</button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 分組明細清單 */}
+      {detailGroupTitle && (() => {
+        const group = renderedAccountGroups.find((g: any) => g.title === detailGroupTitle);
+        if (!group) return null;
+        const groupTotal = group.cards.filter((c: any) => !c.account.isLocked).reduce((sum: number, c: any) => sum + Number(c.currentValue ?? 0), 0);
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+            <div className={`w-full sm:max-w-sm max-h-[85vh] flex flex-col ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl`}>
+              <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5 shrink-0">
+                <div>
+                  <h2 className="font-display text-base font-semibold">{group.title}</h2>
+                  <p className={`text-xs mt-0.5 font-mono-ledger ${group.title === "負債總額" ? "text-[#A24936]" : textMuted}`}>{hideBalance ? "••••" : `NT$ ${formatCurrency(groupTotal)}`} · {group.cards.length} 項</p>
+                </div>
+                <button onClick={() => setDetailGroupTitle(null)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+              </div>
+              <div className="p-5 space-y-2 overflow-y-auto">
+                {group.cards.map((card: any) => {
+                  const pct = groupTotal > 0 ? (Number(card.currentValue ?? 0) / groupTotal) * 100 : 0;
+                  return (
+                    <div key={card.id} className="flex items-center gap-3 py-2 border-b border-black/[0.05] dark:border-white/[0.05] last:border-0">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: group.color }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{card.title.replace(/\.TW$/i, "")}</p>
+                        <p className={`text-[10px] ${textMuted}`}>{categoryLabelMap[card.category]}{pct > 0 && ` · 佔比 ${pct.toFixed(1)}%`}</p>
+                      </div>
+                      <span className={`font-mono-ledger text-sm font-bold shrink-0 ${group.title === "負債總額" ? "text-[#A24936]" : ""}`}>{hideBalance ? "••••" : `NT$ ${formatCurrency(card.currentValue)}`}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 行事曆事件詳情 */}
+      {selectedEventDetail && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl`}>
+            <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5">
+              <h2 className="font-display text-base font-semibold">{selectedEventDetail.symbol} · {selectedEventDetail.name}</h2>
+              <button onClick={() => setSelectedEventDetail(null)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: eventTypeMeta[selectedEventDetail.type].color }} />
+                <span className="text-sm font-semibold">{eventTypeMeta[selectedEventDetail.type].label}</span>
+              </div>
+              <div>
+                <p className={`text-[11px] ${textMuted}`}>日期</p>
+                <p className="font-mono-ledger text-sm font-bold mt-0.5">{new Date(selectedEventDetail.date).toLocaleDateString("zh-TW", { year: "numeric", month: "long", day: "numeric" })}</p>
+              </div>
+              {(selectedEventDetail.type === "DIVIDEND_PAY" || selectedEventDetail.type === "EX_DIVIDEND") && (
+                <div>
+                  <p className={`text-[11px] ${textMuted}`}>每股配息</p>
+                  {selectedEventDetail.amountPerShare != null ? (
+                    <>
+                      <p className="font-mono-ledger text-lg font-bold mt-0.5">{selectedEventDetail.amountPerShare.toFixed(2)}</p>
+                      {selectedEventDetail.amountPerShareIsAnnualized && (
+                        <p className={`text-[11px] mt-1 ${textMuted}`}>此為年化配息金額，非單次配發金額，實際單次配息以官方公告為準</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm mt-0.5">尚未公告</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 走勢圖展開檢視 */}
+      {isChartExpanded && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-2xl ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl`}>
+            <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5">
+              <h2 className="font-display text-base font-semibold">走勢比較</h2>
+              <button onClick={() => setIsChartExpanded(false)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5">
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                {Object.entries(BENCHMARKS).map(([key, cfg]) => {
+                  const on = activeBenchmarks.includes(key);
+                  return (
+                    <button key={key} onClick={() => toggleBenchmark(key)} className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-all ${on ? "text-white dark:text-black" : `${textMuted} border-black/10 dark:border-white/10`}`} style={on ? { background: cfg.color, borderColor: cfg.color } : undefined}>
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: on ? "currentColor" : cfg.color }} />
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {renderTrendChartBody("h-[60vh]")}
+              {compareMode && benchmarkVerdicts.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-black/[0.06] dark:border-white/[0.06] space-y-1.5">
+                  {benchmarkVerdicts.map((v) => (
+                    <p key={v.key} className="text-[11px] font-medium flex items-center gap-1.5">
+                      <span className={v.win ? "text-[#4F7B5E] dark:text-[#7FAE8F]" : "text-[#A24936]"}>{v.win ? "✓" : "✗"}</span>
+                      <span>本區間你 <span className="font-mono-ledger font-bold" style={{ color: gold }}>{formatPct(v.you)}</span>，{v.label} <span className="font-mono-ledger font-bold">{formatPct(v.bench)}</span></span>
+                      <span className={`ml-auto font-bold ${v.win ? "text-[#4F7B5E] dark:text-[#7FAE8F]" : "text-[#A24936]"}`}>{v.win ? `跑贏 ${formatPct(v.you - v.bench).slice(1)}` : `落後 ${formatPct(v.bench - v.you).slice(1)}`}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

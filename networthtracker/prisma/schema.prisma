@@ -41,6 +41,14 @@ enum TransactionType {
 enum Currency {
   TWD
   USD
+  JPY
+  EUR
+  GBP
+  HKD
+  CNY
+  AUD
+  CAD
+  SGD
 }
 
 enum SubscriptionTier {
@@ -88,6 +96,7 @@ model User {
   history       AssetHistory[]
   transactions  Transaction[]
   goals         Goal[]
+  syncLogs      SyncLog[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -174,6 +183,16 @@ model AssetHistory {
   @@unique([userId, date])
   @@index([userId])
   @@index([date])
+}
+
+// Free 方案「每 4 小時最多手動同步 3 次」限流用的呼叫紀錄；Pro 不受限，不會寫入這裡查詢的限制邏輯。
+model SyncLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  syncedAt  DateTime @default(now())
+
+  @@index([userId, syncedAt])
 }
 
 model Goal {

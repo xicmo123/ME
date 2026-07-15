@@ -5,7 +5,23 @@ import { Spot } from '@binance/connector';
 import { decrypt } from '@/lib/crypto';
 import { getUserIdFromRequest } from '@/lib/auth';
 import { isTrustedCronRequest } from '@/lib/cron-auth';
+import { getEntitlementsForUser } from '@/lib/entitlements';
 import { prisma } from '@/lib/prisma';
+
+// cron（每 10 分鐘自動更新）只更新 Pro 使用者的帳戶；Free 使用者只能手動同步。
+// 這裡一次查出所有 Pro 使用者 id，讓下面每個 findMany 都能用 userId 過濾，不用逐帳戶查 entitlements。
+async function getProUserIds(): Promise<Set<string>> {
+  const now = new Date();
+  const proUsers = await prisma.user.findMany({
+    where: {
+      subscriptionTier: 'PRO',
+      subscriptionStatus: { in: ['ACTIVE', 'TRIALING'] },
+      OR: [{ subscriptionExpiresAt: null }, { subscriptionExpiresAt: { gt: now } }],
+    },
+    select: { id: true },
+  });
+  return new Set(proUsers.map((u) => u.id));
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -258,7 +274,8 @@ export async function GET(request: NextRequest) {
   // 這支會更新「全部使用者」的報價，開放給：內部 cron，或任一已登入使用者（App 內按「更新」時呼叫）。
   // 目的是擋掉匿名外部呼叫者無限次濫用，不是做逐使用者的權限區分。
   const isCron = isTrustedCronRequest(request);
-  if (!isCron && !getUserIdFromRequest(request)) {
+  const requestUserId = isCron ? null : getUserIdFromRequest(request);
+  if (!isCron && !requestUserId) {
     return NextResponse.json({ message: "未授權" }, { status: 401 });
   }
 
@@ -266,6 +283,30 @@ export async function GET(request: NextRequest) {
   if (!isCron && Date.now() - lastSyncCompletedAt < THROTTLE_MS) {
     return NextResponse.json({ message: "更新太頻繁，請稍後再試", throttled: true });
   }
+
+  // Free 方案：即時股價自動更新（10 分鐘 cron）是 Pro 專屬，Free 只能手動同步，
+  // 且每 4 小時最多手動同步 3 次；Pro 不受此限制。
+  if (!isCron && requestUserId) {
+    const entitlements = await getEntitlementsForUser(requestUserId);
+    if (entitlements.manualSyncLimitPer4Hours != null) {
+      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+      const recentSyncCount = await prisma.syncLog.count({
+        where: { userId: requestUserId, syncedAt: { gt: fourHoursAgo } },
+      });
+      if (recentSyncCount >= entitlements.manualSyncLimitPer4Hours) {
+        return NextResponse.json(
+          { message: `免費方案每 4 小時最多手動同步 ${entitlements.manualSyncLimitPer4Hours} 次，升級 Pro 解鎖每 10 分鐘自動即時更新股價。`, code: "UPGRADE_REQUIRED", feature: "autoSync" },
+          { status: 402 }
+        );
+      }
+    }
+    await prisma.syncLog.create({ data: { userId: requestUserId } }).catch(() => {});
+  }
+
+  // cron 自動更新只服務 Pro 使用者；使用者手動觸發時（不論免費或 Pro）維持原行為，更新所有人共用的報價快取，
+  // 讓「按了卻沒反應」的情況不會發生。
+  const proUserIds = isCron ? await getProUserIds() : null;
+  const proOnlyFilter = proUserIds ? { userId: { in: Array.from(proUserIds) } } : {};
 
   const now = new Date();
   const results = {
@@ -300,6 +341,7 @@ export async function GET(request: NextRequest) {
         isActive: true,
         isApiConnected: false,
         category: { in: ['TAIWAN_STOCK', 'US_STOCK', 'CRYPTO'] },
+        ...proOnlyFilter,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -383,7 +425,7 @@ export async function GET(request: NextRequest) {
   // 但市場報價（fetchTickers）是公開資料，同一輪只查一次、所有帳戶共用，避免隨帳戶數重複打公開端點。
   try {
     const bitfinexAccounts = await prisma.account.findMany({
-      where: { isActive: true, isApiConnected: true, apiSource: 'BITFINEX', category: 'CRYPTO' },
+      where: { isActive: true, isApiConnected: true, apiSource: 'BITFINEX', category: 'CRYPTO', ...proOnlyFilter },
     });
 
     let sharedTickers: any = {};
@@ -455,7 +497,7 @@ export async function GET(request: NextRequest) {
   // ticker/price 是公開端點，同一輪只查一次、所有帳戶共用，避免隨帳戶數重複打全市場報價。
   try {
     const binanceAccounts = await prisma.account.findMany({
-      where: { isActive: true, isApiConnected: true, apiSource: 'BINANCE', category: 'CRYPTO' },
+      where: { isActive: true, isApiConnected: true, apiSource: 'BINANCE', category: 'CRYPTO', ...proOnlyFilter },
     });
 
     let sharedPriceMap = new Map<string, number>();
@@ -504,7 +546,7 @@ export async function GET(request: NextRequest) {
   // ─── OKX ─────────────────────────────────────────────────────
   try {
     const okxAccounts = await prisma.account.findMany({
-      where: { isActive: true, isApiConnected: true, apiSource: 'OKX', category: 'CRYPTO' },
+      where: { isActive: true, isApiConnected: true, apiSource: 'OKX', category: 'CRYPTO', ...proOnlyFilter },
     });
 
     await runWithConcurrency(okxAccounts, 5, async (account) => {
@@ -547,7 +589,7 @@ export async function GET(request: NextRequest) {
   // exchange-rates 是公開端點，同一輪只查一次、所有帳戶共用，避免隨帳戶數重複打對外請求。
   try {
     const coinbaseAccounts = await prisma.account.findMany({
-      where: { isActive: true, isApiConnected: true, apiSource: 'COINBASE', category: 'CRYPTO' },
+      where: { isActive: true, isApiConnected: true, apiSource: 'COINBASE', category: 'CRYPTO', ...proOnlyFilter },
     });
 
     let sharedPriceMap = new Map<string, number>();

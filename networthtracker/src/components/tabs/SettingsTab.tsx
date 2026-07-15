@@ -16,6 +16,7 @@ type Entitlements = {
   tier: "FREE" | "PRO";
   isPro: boolean;
   limits: { maxAccounts: number | null; maxGoals: number | null };
+  manualSyncLimitPer4Hours?: number | null;
 };
 
 type CurrentUser = { email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean; entitlements?: Entitlements } | null;
@@ -23,6 +24,7 @@ type CurrentUser = { email: string; hasGoogle: boolean; hasApple: boolean; hasPa
 const PLAN_COMPARISON: { label: string; free: string; pro: string }[] = [
   { label: "帳戶數量", free: "最多 20 個", pro: "無限" },
   { label: "財務目標", free: "最多 3 個", pro: "無限" },
+  { label: "股價即時更新", free: "手動同步，每 4 小時最多 3 次", pro: "每 10 分鐘自動更新" },
   { label: "交易所自動同步", free: "—", pro: "✓" },
   { label: "CSV 報表匯出", free: "—", pro: "✓" },
   { label: "定期扣款自動記帳", free: "—", pro: "✓" },
@@ -172,7 +174,12 @@ export function SettingsTab({
         <button onClick={handleSyncPrices} disabled={syncing} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
           <div className="flex items-center gap-3">
             <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} style={{ color: gold }} />
-            <span className="text-sm font-medium">更新價格</span>
+            <div className="text-left">
+              <span className="text-sm font-medium block">更新價格</span>
+              {!isPro && (
+                <span className={`text-[11px] ${textMuted}`}>免費方案每 4 小時最多手動同步 {currentUser?.entitlements?.manualSyncLimitPer4Hours ?? 3} 次；升級 Pro 享每 10 分鐘自動更新</span>
+              )}
+            </div>
           </div>
           <span className={`font-mono-ledger text-xs ${textMuted}`}>{syncing ? "更新中…" : `USD/TWD ${exchangeRate?.toFixed(2) || "—"}`}</span>
         </button>

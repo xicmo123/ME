@@ -16,7 +16,9 @@ export type Entitlements = {
     apiSync: boolean; // 交易所 API 自動同步（Bitfinex/Binance/OKX/Coinbase）
     csvExport: boolean; // CSV 報表匯出
     recurringTransactions: boolean; // 定期扣款自動記帳
+    autoSync: boolean; // 股價/幣價每 10 分鐘自動更新；Free 只能手動同步
   };
+  manualSyncLimitPer4Hours: number | null; // null = 無上限（Pro）；Free 每 4 小時最多手動同步幾次
 };
 
 const FREE_LIMITS: Entitlements["limits"] = { maxAccounts: 20, maxGoals: 3 };
@@ -26,12 +28,16 @@ const FREE_FEATURES: Entitlements["features"] = {
   apiSync: false,
   csvExport: false,
   recurringTransactions: false,
+  autoSync: false,
 };
 const PRO_FEATURES: Entitlements["features"] = {
   apiSync: true,
   csvExport: true,
   recurringTransactions: true,
+  autoSync: true,
 };
+
+const FREE_MANUAL_SYNC_LIMIT_PER_4H = 3;
 
 // ACTIVE/TRIALING 才算有效訂閱；過期日一到，即使 tier 欄位還沒被 webhook 改回 FREE 也視為無效，
 // 避免金流那邊 webhook 延遲或漏接時，使用者無限期免費用到付費功能。
@@ -52,6 +58,7 @@ export function resolveEntitlements(user: {
     isPro,
     limits: isPro ? PRO_LIMITS : FREE_LIMITS,
     features: isPro ? PRO_FEATURES : FREE_FEATURES,
+    manualSyncLimitPer4Hours: isPro ? null : FREE_MANUAL_SYNC_LIMIT_PER_4H,
   };
 }
 

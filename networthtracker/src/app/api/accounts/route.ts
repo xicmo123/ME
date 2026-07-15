@@ -126,13 +126,14 @@ export async function POST(request: NextRequest) {
   const {
     name, type, category, symbol, quantity, currency,
     isApiConnected, apiSource, apiKey, apiSecret, apiPassphrase,
-    monthlyDeductionAmount, deductionDate, interestRate, loanTermMonths, loanStartDate,
+    monthlyDeductionAmount, deductionDate, interestRate, loanTermMonths, loanStartDate, deductFromAccountId,
   } = body as {
     name?: string; type?: string; category?: string; symbol?: string;
     quantity?: number | string; currency?: string; isApiConnected?: boolean;
     apiSource?: string | null; apiKey?: string | null; apiSecret?: string | null; apiPassphrase?: string | null;
     monthlyDeductionAmount?: number | string; deductionDate?: number | string;
     interestRate?: number | string; loanTermMonths?: number | string; loanStartDate?: string | null;
+    deductFromAccountId?: string | null;
   };
 
   if (!name || !type || !category || !currency) {
@@ -215,6 +216,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  let deductFromAccountIdValue: string | null = null;
+  if (type === "LIABILITY" && typeof deductFromAccountId === "string" && deductFromAccountId.trim()) {
+    const sourceAccount = await prisma.account.findFirst({
+      where: { id: deductFromAccountId.trim(), userId, isActive: true, category: { in: ["CASH", "BANK_ACCOUNT"] } },
+    });
+    if (!sourceAccount) {
+      return NextResponse.json({ message: "扣款來源帳戶不存在或不是現金／銀行帳戶。" }, { status: 400 });
+    }
+    deductFromAccountIdValue = sourceAccount.id;
+  }
+
   let currentPriceValue = 1;
   let currentValueValue = isApiMode ? 0 : quantityValue;
 
@@ -263,6 +275,7 @@ export async function POST(request: NextRequest) {
       interestRate: interestRateValue,
       loanTermMonths: loanTermMonthsValue,
       loanStartDate: loanStartDateValue,
+      deductFromAccountId: deductFromAccountIdValue,
     },
   });
 

@@ -33,6 +33,24 @@ async function fetchYahooMatches(q: string, quoteTypes: string[], exchange?: str
   }
 }
 
+// Yahoo 的 search API 對新幣種收錄常有延遲或分類錯誤，若代號完全比對不到，
+// 直接嘗試 quote 該幣種的 -USD / -USDT 交易對，只要 Yahoo 有報價就能兜底找到。
+async function fetchYahooDirectCryptoQuote(q: string): Promise<Suggestion[]> {
+  if (!/^[a-zA-Z0-9]+$/.test(q)) return [];
+  const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+  for (const suffix of ["-USD", "-USDT"]) {
+    try {
+      const quote = await yahoo.quote(`${q.toUpperCase()}${suffix}`);
+      if (quote && quote.quoteType === "CRYPTOCURRENCY") {
+        return [{ symbol: q.toUpperCase(), name: quote.shortName ?? quote.longName ?? q.toUpperCase() }];
+      }
+    } catch {
+      // try next suffix
+    }
+  }
+  return [];
+}
+
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
   const market = request.nextUrl.searchParams.get("market") ?? "TW";
@@ -50,6 +68,10 @@ export async function GET(request: NextRequest) {
     const localMatches: Suggestion[] = rankMatches(CRYPTO_LIST, qLower).map((s) => ({ symbol: s.symbol, name: s.name }));
     const yahooMatches = await fetchYahooMatches(q, ["CRYPTOCURRENCY"]);
     for (const m of yahooMatches) if (!localMatches.some((e) => e.symbol === m.symbol)) localMatches.push(m);
+    if (!localMatches.some((e) => e.symbol.toLowerCase() === qLower)) {
+      const directMatches = await fetchYahooDirectCryptoQuote(q);
+      for (const m of directMatches) if (!localMatches.some((e) => e.symbol === m.symbol)) localMatches.unshift(m);
+    }
     return NextResponse.json({ results: localMatches.slice(0, 10) });
   }
 

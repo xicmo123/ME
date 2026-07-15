@@ -4,7 +4,7 @@ import { getUserIdFromRequest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-type StockEvent = { symbol: string; name: string; date: string; type: "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND_PAY" };
+type StockEvent = { symbol: string; name: string; date: string; type: "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND_PAY"; amountPerShare?: number; amountPerShareIsAnnualized?: boolean };
 
 // 這支是單一長駐 Node process（非 serverless），模組層級變數在整個 process 生命週期內有效，
 // 可以拿來當簡單的行程內快取。使用者數一多，不同人常持有同一檔股票（例如 2330、00929），
@@ -108,18 +108,21 @@ export async function GET(request: NextRequest) {
       } else {
         const symbolEvents: StockEvent[] = [];
         try {
-          const res = await yahoo.quoteSummary(symbol, { modules: ["calendarEvents", "price"] });
+          const res = await yahoo.quoteSummary(symbol, { modules: ["calendarEvents", "price", "summaryDetail"] });
           name = res.price?.shortName ?? symbol;
+          // Yahoo 只提供「年化」每股配息（dividendRate），沒有單次配息金額，
+          // 用 amountPerShareIsAnnualized 標記讓前端提示這是年化數字，避免使用者誤以為是單次金額
+          const annualDividendRate = typeof res.summaryDetail?.dividendRate === "number" ? res.summaryDetail.dividendRate : undefined;
 
           for (const d of res.calendarEvents?.earnings?.earningsDate ?? []) {
             symbolEvents.push({ symbol: displaySymbol, name, date: new Date(d).toISOString(), type: "EARNINGS" });
           }
           if (res.calendarEvents?.exDividendDate) {
-            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.exDividendDate).toISOString(), type: "EX_DIVIDEND" });
+            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.exDividendDate).toISOString(), type: "EX_DIVIDEND", amountPerShare: annualDividendRate, amountPerShareIsAnnualized: annualDividendRate != null });
             gotExDividendFromYahoo = true;
           }
           if (res.calendarEvents?.dividendDate) {
-            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.dividendDate).toISOString(), type: "DIVIDEND_PAY" });
+            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.dividendDate).toISOString(), type: "DIVIDEND_PAY", amountPerShare: annualDividendRate, amountPerShareIsAnnualized: annualDividendRate != null });
           }
           yahooCache.set(symbol, { data: { name, events: symbolEvents }, expiresAt: Date.now() + YAHOO_CACHE_TTL_MS });
         } catch (error) {
