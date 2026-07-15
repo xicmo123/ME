@@ -6,6 +6,7 @@ import YahooFinance from "yahoo-finance2";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan";
+import { getEntitlementsForUser } from "@/lib/entitlements";
 
 
 import { prisma } from "@/lib/prisma";
@@ -135,6 +136,19 @@ export async function POST(request: NextRequest) {
   }
 
   const isApiMode = Boolean(isApiConnected);
+
+  const entitlements = await getEntitlementsForUser(userId);
+
+  if (isApiMode && !entitlements.features.apiSync) {
+    return NextResponse.json({ message: "交易所 API 自動同步為付費功能，請升級方案後再連接。", code: "UPGRADE_REQUIRED", feature: "apiSync" }, { status: 402 });
+  }
+
+  if (entitlements.limits.maxAccounts !== null) {
+    const activeAccountCount = await prisma.account.count({ where: { userId, isActive: true } });
+    if (activeAccountCount >= entitlements.limits.maxAccounts) {
+      return NextResponse.json({ message: `免費方案最多可建立 ${entitlements.limits.maxAccounts} 個帳戶，請升級方案以新增更多。`, code: "UPGRADE_REQUIRED", feature: "maxAccounts" }, { status: 402 });
+    }
+  }
   const trimmedSymbol = typeof symbol === "string" ? symbol.trim() : "";
   const fallbackSymbol = (typeof apiSource === "string" ? apiSource.trim() : "") || "BITFINEX";
   const requiresSymbolValidation =

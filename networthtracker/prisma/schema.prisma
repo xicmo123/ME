@@ -43,21 +43,46 @@ enum Currency {
   USD
 }
 
+enum SubscriptionTier {
+  FREE
+  PRO
+}
+
+// 訂閱狀態：ACTIVE/TRIALING 視為有效，其餘一律當作沒有訂閱權限（過期後別自動當 FREE，
+// 保留最後狀態方便之後做「已取消但還在計費週期內」之類的顯示）
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  CANCELED
+  EXPIRED
+  PAST_DUE
+}
+
 // 🌟 新增：用户表
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
   passwordHash  String?  // 可为 null（如果用 OAuth）
-  
+
   // 未来扩展：Google/GitHub OAuth
   googleId      String?  @unique
   githubId      String?  @unique
   appleId       String?  @unique
-  
+
   emailVerified Boolean  @default(false)
   verificationToken String? // 邮件验证 token
   verificationTokenExpires DateTime?
-  
+
+  // 🌟 訂閱／付費方案：目前先只做資料層與功能開關骨架，尚未接金流。
+  // provider/customerId/subscriptionId 留給之後串 Stripe 或 Apple IAP 時填入。
+  subscriptionTier      SubscriptionTier   @default(FREE)
+  subscriptionStatus    SubscriptionStatus @default(ACTIVE)
+  subscriptionProvider  String?            // "stripe" | "apple_iap" | "manual"
+  subscriptionExpiresAt DateTime?          // null 表示無期限（例如手動贈送、或 FREE 方案本身不看這欄位）
+  trialEndsAt           DateTime?
+  stripeCustomerId      String?            @unique
+  stripeSubscriptionId  String?            @unique
+
   // 这个用户的所有资产
   accounts      Account[]
   history       AssetHistory[]

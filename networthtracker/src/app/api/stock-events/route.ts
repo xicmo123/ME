@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
+import { getUserIdFromRequest } from "@/lib/auth";
+import { getEntitlementsForUser } from "@/lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +75,14 @@ export async function GET(request: NextRequest) {
   const symbolsParam = request.nextUrl.searchParams.get("symbols") ?? "";
   const symbols = symbolsParam.split(",").map((s) => s.trim()).filter(Boolean);
   if (symbols.length === 0) return NextResponse.json({ events: [] });
+
+  const userId = getUserIdFromRequest(request);
+  if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
+
+  const entitlements = await getEntitlementsForUser(userId);
+  if (!entitlements.features.dividendCalendar) {
+    return NextResponse.json({ events: [], upgradeRequired: true, feature: "dividendCalendar" });
+  }
 
   const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
   const events: StockEvent[] = [];

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { createToken } from "@/lib/auth";
 import bcrypt from "bcryptjs";
-
+import { resolveEntitlements } from "@/lib/entitlements";
 
 import { prisma } from "@/lib/prisma";
 
@@ -14,11 +14,15 @@ export async function GET(request: NextRequest) {
     const payload = jwt.default.verify(token, process.env.JWT_SECRET || "fallback_secret_change_this") as { userId: string };
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { id: true, email: true, emailVerified: true, createdAt: true, googleId: true, appleId: true, passwordHash: true },
+      select: {
+        id: true, email: true, emailVerified: true, createdAt: true, googleId: true, appleId: true, passwordHash: true,
+        subscriptionTier: true, subscriptionStatus: true, subscriptionExpiresAt: true,
+      },
     });
     if (!user) return NextResponse.json({ user: null }, { status: 401 });
-    const { googleId, appleId, passwordHash, ...rest } = user;
-    return NextResponse.json({ user: { ...rest, hasGoogle: !!googleId, hasApple: !!appleId, hasPassword: !!passwordHash } });
+    const { googleId, appleId, passwordHash, subscriptionTier, subscriptionStatus, subscriptionExpiresAt, ...rest } = user;
+    const entitlements = resolveEntitlements({ subscriptionTier, subscriptionStatus, subscriptionExpiresAt });
+    return NextResponse.json({ user: { ...rest, hasGoogle: !!googleId, hasApple: !!appleId, hasPassword: !!passwordHash, entitlements } });
   } catch {
     return NextResponse.json({ user: null }, { status: 401 });
   }

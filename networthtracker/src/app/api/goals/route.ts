@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
+import { getEntitlementsForUser } from "@/lib/entitlements";
 
 import { prisma } from "@/lib/prisma";
 
@@ -56,6 +57,14 @@ export async function POST(request: NextRequest) {
 
   if (!name || !targetAmount || Number(targetAmount) <= 0) {
     return NextResponse.json({ message: "請填寫目標名稱和金額" }, { status: 400 });
+  }
+
+  const entitlements = await getEntitlementsForUser(userId);
+  if (entitlements.limits.maxGoals !== null) {
+    const activeGoalCount = await prisma.goal.count({ where: { userId, isActive: true } });
+    if (activeGoalCount >= entitlements.limits.maxGoals) {
+      return NextResponse.json({ message: `免費方案最多可建立 ${entitlements.limits.maxGoals} 個目標，請升級方案以新增更多。`, code: "UPGRADE_REQUIRED", feature: "maxGoals" }, { status: 402 });
+    }
   }
 
   const goal = await prisma.goal.create({
