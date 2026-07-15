@@ -20,7 +20,7 @@ export type Entitlements = {
   };
 };
 
-const FREE_LIMITS: Entitlements["limits"] = { maxAccounts: 5, maxGoals: 2 };
+const FREE_LIMITS: Entitlements["limits"] = { maxAccounts: 20, maxGoals: 2 };
 const PRO_LIMITS: Entitlements["limits"] = { maxAccounts: null, maxGoals: null };
 
 const FREE_FEATURES: Entitlements["features"] = {
