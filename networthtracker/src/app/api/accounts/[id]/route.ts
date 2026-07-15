@@ -3,6 +3,7 @@ import YahooFinance from "yahoo-finance2"
 import { getUserIdFromRequest } from "@/lib/auth"
 import { encrypt } from "@/lib/crypto"
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan"
+import { getEntitlementsForUser } from "@/lib/entitlements"
 
 
 import { prisma } from "@/lib/prisma";
@@ -100,6 +101,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   const existingAccount = await prisma.account.findFirst({ where: { id, userId } })
   if (!existingAccount) return NextResponse.json({ message: "Account not found." }, { status: 404 })
+
+  // 新啟用 API 自動同步才擋（帳戶本來就已連接的，繼續編輯其他欄位不受影響，避免降級用戶被鎖死既有帳戶）
+  if (isApiMode && !existingAccount.isApiConnected) {
+    const entitlements = await getEntitlementsForUser(userId)
+    if (!entitlements.features.apiSync) {
+      return NextResponse.json({ message: "交易所自動同步是 Pro 專屬功能，升級 Pro 解鎖，免手動輸入、資產即時自動更新。", code: "UPGRADE_REQUIRED", feature: "apiSync" }, { status: 402 })
+    }
+  }
 
   let nextCurrentPrice = existingAccount.currentPrice ?? 0
   let nextCurrentValue = isApiMode ? 0 : quantityValue
