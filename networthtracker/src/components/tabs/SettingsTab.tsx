@@ -1,4 +1,7 @@
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle } from "lucide-react";
+"use client";
+
+import { useState } from "react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X, Check } from "lucide-react";
 import { isNative } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 
@@ -8,7 +11,28 @@ const Switch = ({ on }: { on: boolean }) => (
   </span>
 );
 
-type CurrentUser = { email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean } | null;
+type Entitlements = {
+  tier: "FREE" | "PRO";
+  isPro: boolean;
+  limits: { maxAccounts: number | null; maxGoals: number | null };
+};
+
+type CurrentUser = { email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean; entitlements?: Entitlements } | null;
+
+const PLAN_COMPARISON: { label: string; free: string; pro: string }[] = [
+  { label: "帳戶數量", free: "最多 20 個", pro: "無限" },
+  { label: "財務目標", free: "最多 3 個", pro: "無限" },
+  { label: "交易所自動同步", free: "—", pro: "✓" },
+  { label: "除息／財報行事曆", free: "—", pro: "✓" },
+  { label: "CSV 報表匯出", free: "—", pro: "✓" },
+  { label: "定期扣款自動記帳", free: "—", pro: "✓" },
+];
+
+const PRICING_PLANS = [
+  { id: "monthly", title: "月付方案", price: "NT$30", period: "／月" },
+  { id: "yearly", title: "年付方案", price: "NT$300", period: "／年", badge: "省 2 個月" },
+  { id: "lifetime", title: "買斷方案", price: "NT$599", period: "／一次付清", badge: "終身使用" },
+] as const;
 
 export function SettingsTab({
   surface,
@@ -79,10 +103,37 @@ export function SettingsTab({
   handleLogout: () => void;
   setShowDeleteConfirm: (v: boolean) => void;
 }) {
+  const [showPlanDetails, setShowPlanDetails] = useState(false);
+  const isPro = currentUser?.entitlements?.isPro ?? false;
+
+  function handleSelectPlan(planTitle: string) {
+    showToast(`${planTitle}付款功能即將推出，敬請期待`, "success");
+  }
+
   return (
     <div className="px-5 pt-5 pb-4 max-w-lg mx-auto space-y-4">
       <div className="pb-2">
         <h2 className="font-display text-[22px] font-bold tracking-tight">設定</h2>
+      </div>
+      <div className={`${surface} rounded-2xl overflow-hidden`}>
+        <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
+          <p className={sectionLabel}>帳戶方案</p>
+        </div>
+        <button onClick={() => setShowPlanDetails(true)} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+          <div className="flex items-center gap-3">
+            <Crown className="h-4 w-4" style={{ color: gold }} />
+            <div className="text-left">
+              <span className="text-sm font-medium block">目前方案</span>
+              <span className={`text-xs ${textMuted}`}>查看方案內容與升級選項</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${isPro ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
+              {isPro ? "PRO 版" : "免費版"}
+            </span>
+            <ChevronRight className={`h-4 w-4 ${textMuted}`} />
+          </div>
+        </button>
       </div>
       <div className={`${surface} rounded-2xl overflow-hidden`}>
         <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
@@ -282,6 +333,84 @@ export function SettingsTab({
         </button>
       </div>
       <p className={`text-center text-xs ${textMuted} pb-2`}>Zeno Worth · 版本 1.0</p>
+
+      {showPlanDetails && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[85vh] overflow-y-auto`}>
+            <div className="flex items-center justify-between p-5 border-b border-black/[0.06] dark:border-white/[0.06] sticky top-0 bg-inherit">
+              <div className="flex items-center gap-2">
+                <Crown className="h-4 w-4" style={{ color: gold }} />
+                <h3 className="font-display text-base font-semibold">方案內容</h3>
+              </div>
+              <button onClick={() => setShowPlanDetails(false)} className={`p-1.5 ${textMuted} hover:text-[#1C1F1A] dark:hover:text-white`}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              <div className="flex items-center justify-between">
+                <span className={`text-sm ${textMuted}`}>目前方案</span>
+                <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${isPro ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
+                  {isPro ? "PRO 版" : "免費版"}
+                </span>
+              </div>
+
+              <div>
+                <p className={`${sectionLabel} mb-2`}>方案比較</p>
+                <div className={`${surface} border border-black/[0.06] dark:border-white/[0.06] rounded-xl overflow-hidden`}>
+                  <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
+                    <span className={`text-[10px] font-bold ${textMuted}`} />
+                    <span className={`text-[10px] font-bold ${textMuted} text-center`}>免費版</span>
+                    <span className="text-[10px] font-bold text-center" style={{ color: gold }}>PRO 版</span>
+                  </div>
+                  {PLAN_COMPARISON.map((row, i) => (
+                    <div key={row.label} className={`grid grid-cols-[1fr_auto_auto] gap-x-3 px-4 py-2.5 items-center ${i > 0 ? "border-t border-black/[0.05] dark:border-white/[0.05]" : ""}`}>
+                      <span className="text-sm">{row.label}</span>
+                      <span className={`text-xs font-mono-ledger text-center w-14 ${textMuted}`}>{row.free}</span>
+                      <span className="text-xs font-mono-ledger text-center w-14 font-semibold" style={{ color: row.pro === "✓" ? "#4F7B5E" : gold }}>{row.pro}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {!isPro && (
+                <div>
+                  <p className={`${sectionLabel} mb-2`}>升級方案</p>
+                  <div className="space-y-2">
+                    {PRICING_PLANS.map((plan) => (
+                      <button
+                        key={plan.id}
+                        onClick={() => handleSelectPlan(plan.title)}
+                        className="w-full flex items-center justify-between p-4 rounded-xl border border-black/10 dark:border-white/10 hover:border-[#B8933C] transition-colors text-left"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold">{plan.title}</span>
+                            {"badge" in plan && plan.badge && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: `${gold}1A`, color: gold }}>{plan.badge}</span>
+                            )}
+                          </div>
+                          <span className={`text-xs ${textMuted}`}>升級後立即解鎖所有 Pro 功能</span>
+                        </div>
+                        <span className="font-mono-ledger text-sm font-bold whitespace-nowrap">
+                          {plan.price}<span className={`text-xs font-normal ${textMuted}`}>{plan.period}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {isPro && (
+                <div className="flex items-center gap-2 p-4 rounded-xl bg-[#4F7B5E]/10 text-[#4F7B5E]">
+                  <Check className="h-4 w-4 shrink-0" />
+                  <span className="text-sm font-medium">你已經是 PRO 版，感謝支持！</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -209,7 +209,10 @@ export default function HomePage() {
   const [accountSearch, setAccountSearch] = useState("");
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUser, setCurrentUser] = useState<{ email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{
+    email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean;
+    entitlements?: { tier: "FREE" | "PRO"; isPro: boolean; limits: { maxAccounts: number | null; maxGoals: number | null } };
+  } | null>(null);
   const [googleUnlinking, setGoogleUnlinking] = useState(false);
   const [appleUnlinking, setAppleUnlinking] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
