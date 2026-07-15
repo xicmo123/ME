@@ -1,15 +1,26 @@
 import ccxt from "ccxt";
 import { NextRequest, NextResponse } from 'next/server';
 import YahooFinance from "yahoo-finance2";
-import { PrismaClient } from '@prisma/client';
 import { Spot } from '@binance/connector';
 import { decrypt } from '@/lib/crypto';
 import { getUserIdFromRequest } from '@/lib/auth';
 import { isTrustedCronRequest } from '@/lib/cron-auth';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-const prisma = new PrismaClient();
+// 有限併發跑一批 async 工作，避免 for...await 序列等待（帳戶/股票數一多同步會拖很久），
+// 同時避免完全無限制的 Promise.all 把外部 API 瞬間打爆而被限流。
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let index = 0;
+  async function next(): Promise<void> {
+    while (index < items.length) {
+      const item = items[index++];
+      await worker(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, next));
+}
 
 // 加密功能上線前建立的帳戶，apiKey/apiSecret 還是明碼存的舊資料；
 // 解密失敗就當作舊的明碼值直接使用，讓舊帳戶在下次編輯前仍可正常同步。
@@ -305,14 +316,16 @@ export async function GET(request: NextRequest) {
     }
 
     const priceBySymbol = new Map<string, number>();
-    for (const { category, quoteSymbol, rawSymbol } of quoteSymbolMap.values()) {
+    // symbol 數量會隨帳戶／使用者數增加，序列 await 會讓一輪同步的時間線性拉長，
+    // 改成有限併發（同時最多 8 檔）平行查詢，同時避免無限併發把外部 API 瞬間打爆。
+    await runWithConcurrency(Array.from(quoteSymbolMap.values()), 8, async ({ category, quoteSymbol, rawSymbol }) => {
       try {
         // 台股優先用證交所自己的公開行情端點，查不到（例如興櫃、代碼格式特殊）才退回 Yahoo
         if (category === 'TAIWAN_STOCK') {
           const twsePrice = await getTwseQuote(rawSymbol);
           if (twsePrice) {
             priceBySymbol.set(quoteSymbol, twsePrice);
-            continue;
+            return;
           }
         }
         const quoteResult = await yahoo.quote(quoteSymbol);
@@ -323,7 +336,7 @@ export async function GET(request: NextRequest) {
         results.errors.push(errorMsg);
         console.error(errorMsg);
       }
-    }
+    });
 
     for (const account of manualAccounts) {
       const symbol = account.symbol?.trim();
@@ -382,9 +395,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    for (const account of bitfinexAccounts) {
+    await runWithConcurrency(bitfinexAccounts, 5, async (account) => {
       try {
-        if (!account.apiKey || !account.apiSecret) continue;
+        if (!account.apiKey || !account.apiSecret) return;
 
         const exchange = new ccxt.bitfinex({
           apiKey: decryptOrLegacyPlaintext(account.apiKey.trim()),
@@ -411,10 +424,10 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        if (totalUsdValue === 0) continue;
+        if (totalUsdValue === 0) return;
         if (!usdToTwdRate) {
           results.errors.push(`Skipped Bitfinex account ${account.name}: no USD/TWD rate available`);
-          continue;
+          return;
         }
 
         const twdValue = totalUsdValue * usdToTwdRate;
@@ -433,7 +446,7 @@ export async function GET(request: NextRequest) {
           data: { apiSyncError: errorMsg },
         }).catch(() => {});
       }
-    }
+    });
   } catch (error) {
     results.errors.push(`Bitfinex sync error: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -456,16 +469,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    for (const account of binanceAccounts) {
+    await runWithConcurrency(binanceAccounts, 5, async (account) => {
       try {
-        if (!account.apiKey || !account.apiSecret) continue;
+        if (!account.apiKey || !account.apiSecret) return;
         if (!usdToTwdRate) {
           results.errors.push(`Skipped Binance account ${account.name}: no USD/TWD rate available`);
-          continue;
+          return;
         }
 
         const totalUsdValue = await fetchBinanceTotalUsd(decryptOrLegacyPlaintext(account.apiKey.trim()), decryptOrLegacyPlaintext(account.apiSecret.trim()), sharedPriceMap);
-        if (totalUsdValue === 0) continue;
+        if (totalUsdValue === 0) return;
 
         const twdValue = totalUsdValue * usdToTwdRate;
         await prisma.account.update({
@@ -483,7 +496,7 @@ export async function GET(request: NextRequest) {
           data: { apiSyncError: errorMsg },
         }).catch(() => {});
       }
-    }
+    });
   } catch (error) {
     results.errors.push(`Binance sync error: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -494,12 +507,12 @@ export async function GET(request: NextRequest) {
       where: { isActive: true, isApiConnected: true, apiSource: 'OKX', category: 'CRYPTO' },
     });
 
-    for (const account of okxAccounts) {
+    await runWithConcurrency(okxAccounts, 5, async (account) => {
       try {
-        if (!account.apiKey || !account.apiSecret || !account.apiPassphrase) continue;
+        if (!account.apiKey || !account.apiSecret || !account.apiPassphrase) return;
         if (!usdToTwdRate) {
           results.errors.push(`Skipped OKX account ${account.name}: no USD/TWD rate available`);
-          continue;
+          return;
         }
 
         const totalUsdValue = await fetchOkxTotalUsd(
@@ -507,7 +520,7 @@ export async function GET(request: NextRequest) {
           decryptOrLegacyPlaintext(account.apiSecret.trim()),
           decryptOrLegacyPlaintext(account.apiPassphrase.trim()),
         );
-        if (totalUsdValue === 0) continue;
+        if (totalUsdValue === 0) return;
 
         const twdValue = totalUsdValue * usdToTwdRate;
         await prisma.account.update({
@@ -525,7 +538,7 @@ export async function GET(request: NextRequest) {
           data: { apiSyncError: errorMsg },
         }).catch(() => {});
       }
-    }
+    });
   } catch (error) {
     results.errors.push(`OKX sync error: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -546,16 +559,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    for (const account of coinbaseAccounts) {
+    await runWithConcurrency(coinbaseAccounts, 5, async (account) => {
       try {
-        if (!account.apiKey || !account.apiSecret) continue;
+        if (!account.apiKey || !account.apiSecret) return;
         if (!usdToTwdRate) {
           results.errors.push(`Skipped Coinbase account ${account.name}: no USD/TWD rate available`);
-          continue;
+          return;
         }
 
         const totalUsdValue = await fetchCoinbaseTotalUsd(decryptOrLegacyPlaintext(account.apiKey.trim()), decryptOrLegacyPlaintext(account.apiSecret.trim()), sharedPriceMap);
-        if (totalUsdValue === 0) continue;
+        if (totalUsdValue === 0) return;
 
         const twdValue = totalUsdValue * usdToTwdRate;
         await prisma.account.update({
@@ -573,7 +586,7 @@ export async function GET(request: NextRequest) {
           data: { apiSyncError: errorMsg },
         }).catch(() => {});
       }
-    }
+    });
   } catch (error) {
     results.errors.push(`Coinbase sync error: ${error instanceof Error ? error.message : String(error)}`);
   }

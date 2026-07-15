@@ -1,13 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import { getUserIdFromRequest } from "@/lib/auth";
 
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 // GET /api/goals → 取得所有目標（含即時進度）
 export async function GET(request: NextRequest) {

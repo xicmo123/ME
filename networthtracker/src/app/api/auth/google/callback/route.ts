@@ -1,15 +1,10 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import { exchangeGoogleCode, fetchGoogleUserInfo } from "@/lib/googleAuth";
 import { createToken, getUserIdFromRequest } from "@/lib/auth";
 import { getAppOrigin } from "@/lib/requestOrigin";
 
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 function redirectWithError(request: NextRequest, message: string) {
   const url = new URL("/", getAppOrigin(request));

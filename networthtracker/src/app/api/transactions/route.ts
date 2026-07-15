@@ -1,15 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import { getUserIdFromRequest } from "@/lib/auth";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined;
-}
 
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
   const userId = getUserIdFromRequest(request);

@@ -1,15 +1,10 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { PrismaClient } from "@prisma/client";
 import { buildAppleAuthUrl, isAppleSignInConfigured } from "@/lib/appleAuth";
 import { getUserIdFromRequest } from "@/lib/auth";
 
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 // GET /api/auth/apple → 導向 Apple 登入頁。已登入的使用者走綁定流程（同 Google 的作法）。
 export async function GET(request: NextRequest) {

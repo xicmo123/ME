@@ -1,15 +1,10 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { PrismaClient } from "@prisma/client";
 import { buildGoogleAuthUrl } from "@/lib/googleAuth";
 import { getUserIdFromRequest } from "@/lib/auth";
 
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 // GET /api/auth/google → 導向 Google 登入頁。若使用者當下已登入（帶著 auth-token），
 // callback 會偵測到並改走「綁定」流程，這裡不需要另外傳參數區分。

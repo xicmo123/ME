@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, LogOut, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Download, Fingerprint, Bell, Search } from "lucide-react";
+import { useTheme } from "next-themes";
+import CountUp from "react-countup";
+import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
+import { Skeleton } from "@/components/ui/skeleton";
+import { GoogleIcon, AppleIcon } from "@/components/icons";
+import { SettingsTab } from "@/components/tabs/SettingsTab";
 import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder } from "@/lib/native";
+
+const LEGACY_DARK_MODE_KEY = "networth-dark-mode";
 
 const typeOptions = [{ value: "ASSET", label: "資產" }, { value: "LIABILITY", label: "負債" }];
 const categoryOptions = [
@@ -94,27 +101,6 @@ const FontStyles = () => (
   `}</style>
 );
 
-const GoogleIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z" />
-    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.9 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 15.6 3 8.4 7.8 6.3 14.7z" />
-    <path fill="#4CAF50" d="M24 45c5.4 0 10.3-2.1 14-5.5l-6.5-5.4c-2 1.6-4.6 2.9-7.5 2.9-5.3 0-9.7-3.4-11.3-8l-6.6 5.1C9.6 40.2 16.3 45 24 45z" />
-    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4 5.5l6.5 5.4C39.9 37.4 43 31.4 43 24c0-1.2-.1-2.4-.4-3.5z" />
-  </svg>
-);
-
-const AppleIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 384 512" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-    <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141 4 184.8 4 273.5c0 26.2 4.8 53.3 14.4 81.2 12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
-  </svg>
-);
-
-const Switch = ({ on }: { on: boolean }) => (
-  <span className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors ${on ? "bg-[#4F7B5E]" : "bg-black/15 dark:bg-white/20"}`}>
-    <span className={`inline-block h-[18px] w-[18px] rounded-full bg-white shadow transform transition-transform ${on ? "translate-x-[19px]" : "translate-x-[3px]"}`} />
-  </span>
-);
-
 // 電子雞風格：蛋 -> 裂痕 -> 破殼小雞，依 progress (0~100) 呈現不同階段
 const EggChick = ({ progress, size = 44 }: { progress: number; size?: number }) => {
   const p = Math.max(0, Math.min(100, progress || 0));
@@ -188,7 +174,8 @@ export default function HomePage() {
   const [benchmarkData, setBenchmarkData] = useState<Record<string, { date: string; level: number }[]>>({});
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDarkMode = mounted && resolvedTheme === "dark";
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [showHistoryForm, setShowHistoryForm] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -388,11 +375,16 @@ export default function HomePage() {
 
   useEffect(() => {
     setMounted(true);
-    const saved = localStorage.getItem("networth-dark-mode");
-    const dark = saved === "true";
-    if (dark) { setIsDarkMode(true); document.documentElement.classList.add("dark"); }
-    void initNativeShell(dark);
 
+    // 舊版把深色模式存在 networth-dark-mode（"true"/"false"），改用 next-themes 後
+    // 交由它自己的 storageKey 管理；這裡做一次性搬遷，讓舊使用者的偏好不會被重置成 system。
+    const legacy = localStorage.getItem(LEGACY_DARK_MODE_KEY);
+    if (legacy !== null) {
+      setTheme(legacy === "true" ? "dark" : "light");
+      localStorage.removeItem(LEGACY_DARK_MODE_KEY);
+    }
+
+    setHideBalance(localStorage.getItem("networth-hide-balance") === "true");
     if (localStorage.getItem("networth-display-currency") === "USD") setDisplayCurrency("USD");
     const savedNotify = localStorage.getItem("networth-event-notify") === "true";
     setNotifyEnabled(savedNotify);
@@ -428,7 +420,7 @@ export default function HomePage() {
         }
       }
     }).catch(() => { });
-  }, []);
+  }, [setTheme]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -449,12 +441,28 @@ export default function HomePage() {
     }
   }, [isAuthenticated]);
 
+  // App 剛掛載、或深色模式改變時，同步 Capacitor 原生外殼（狀態列）的主題；
+  // 第一次呼叫用 initNativeShell（含初始化），之後改用 setStatusBarTheme。
+  const [nativeShellInitialized, setNativeShellInitialized] = useState(false);
+  useEffect(() => {
+    if (!mounted || resolvedTheme === undefined) return;
+    const dark = resolvedTheme === "dark";
+    if (!nativeShellInitialized) {
+      setNativeShellInitialized(true);
+      void initNativeShell(dark);
+    } else {
+      void setStatusBarTheme(dark);
+    }
+  }, [mounted, resolvedTheme, nativeShellInitialized]);
+
   const toggleDarkMode = () => {
-    const next = !isDarkMode;
-    setIsDarkMode(next);
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("networth-dark-mode", String(next));
-    void setStatusBarTheme(next);
+    setTheme(isDarkMode ? "light" : "dark");
+  };
+
+  const toggleHideBalance = () => {
+    const next = !hideBalance;
+    setHideBalance(next);
+    localStorage.setItem("networth-hide-balance", String(next));
   };
 
   const toggleDisplayCurrency = () => {
@@ -1154,7 +1162,7 @@ export default function HomePage() {
                 <p className={`min-w-0 text-right font-mono-ledger text-[11px] font-medium tabular-nums ${textMuted}`}>
                   {todayLabel} · 最近更新時間 {dataHealth.lastSync ? dataHealth.lastSync.toLocaleString("zh-TW", { hour: "2-digit", minute: "2-digit" }) : "尚無"}
                 </p>
-                <button onClick={() => setHideBalance(!hideBalance)} aria-label={hideBalance ? "顯示金額" : "隱藏金額"} className={`${iconBtn} ${textMuted} hover:text-[#B8933C]`}>
+                <button onClick={toggleHideBalance} aria-label={hideBalance ? "顯示金額" : "隱藏金額"} className={`${iconBtn} ${textMuted} hover:text-[#B8933C]`}>
                   {hideBalance ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                 </button>
                 <button onClick={toggleDarkMode} aria-label={isDarkMode ? "切換淺色模式" : "切換深色模式"} className={`${iconBtn} ${textMuted} hover:text-[#B8933C]`}>
@@ -1204,7 +1212,16 @@ export default function HomePage() {
                 </div>
               </div>
               <p className="font-mono-ledger text-[clamp(1.5rem,7.5vw,2.25rem)] font-bold leading-normal mt-1 truncate">
-                {hideBalance ? `${displayCurrency === "USD" ? "US$" : "NT$"} ••••••` : fmtMoney(summary.netWorth)}
+                {hideBalance ? (
+                  `${displayCurrency === "USD" ? "US$" : "NT$"} ••••••`
+                ) : (
+                  <CountUp
+                    end={displayCurrency === "USD" && exchangeRate ? Math.round(summary.netWorth / exchangeRate) : summary.netWorth}
+                    duration={0.8}
+                    preserveValue
+                    formattingFn={(v) => `${displayCurrency === "USD" && exchangeRate ? "US$" : "NT$"} ${formatCurrency(v)}`}
+                  />
+                )}
               </p>
               <div className="mt-3 flex flex-col gap-2 font-mono-ledger text-[11px] font-bold sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1460,7 +1477,6 @@ export default function HomePage() {
                       <span className={`font-display ${cardTitle}`}>{calendarMonth.getFullYear()} 年 {calendarMonth.getMonth() + 1} 月</span>
                       <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className={`p-2 rounded-lg ${textMuted} hover:text-[#B8933C] transition-colors`}>›</button>
                     </div>
-                    {stockEventsLoading && <p className={`text-xs mb-2 ${textMuted}`}>載入股票行事曆中…</p>}
                     <div className="grid grid-cols-7 gap-1 mb-1">
                       {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
                         <div key={d} className={`text-center text-[10px] font-semibold ${textMuted}`}>{d}</div>
@@ -1507,20 +1523,34 @@ export default function HomePage() {
                   </div>
 
                   <div className="space-y-2">
-                    {(selectedCalendarDate ? allCalendarEvents.filter((e) => e.date.slice(0, 10) === selectedCalendarDate) : allCalendarEvents)
-                      .slice()
-                      .sort((a, b) => a.date.localeCompare(b.date))
-                      .map((ev, i) => (
+                    {stockEventsLoading ? (
+                      Array.from({ length: 3 }).map((_, i) => (
                         <div key={i} className={`${surface} rounded-xl p-4 flex items-center gap-3`}>
-                          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: eventTypeMeta[ev.type].color }} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate">{ev.symbol} · {ev.name}</p>
-                            <p className={`text-xs ${textMuted}`}>{eventTypeMeta[ev.type].label} · {new Date(ev.date).toLocaleDateString("zh-TW", { month: "long", day: "numeric" })}</p>
+                          <Skeleton className="h-2 w-2 rounded-full shrink-0" />
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <Skeleton className="h-3.5 w-2/3" />
+                            <Skeleton className="h-3 w-1/3" />
                           </div>
                         </div>
-                      ))}
-                    {allCalendarEvents.length === 0 && !stockEventsLoading && (
-                      <p className={`text-sm text-center py-4 ${textMuted}`}>本月暫無事件</p>
+                      ))
+                    ) : (
+                      <>
+                        {(selectedCalendarDate ? allCalendarEvents.filter((e) => e.date.slice(0, 10) === selectedCalendarDate) : allCalendarEvents)
+                          .slice()
+                          .sort((a, b) => a.date.localeCompare(b.date))
+                          .map((ev, i) => (
+                            <div key={i} className={`${surface} rounded-xl p-4 flex items-center gap-3`}>
+                              <span className="h-2 w-2 rounded-full shrink-0" style={{ background: eventTypeMeta[ev.type].color }} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold truncate">{ev.symbol} · {ev.name}</p>
+                                <p className={`text-xs ${textMuted}`}>{eventTypeMeta[ev.type].label} · {new Date(ev.date).toLocaleDateString("zh-TW", { month: "long", day: "numeric" })}</p>
+                              </div>
+                            </div>
+                          ))}
+                        {allCalendarEvents.length === 0 && (
+                          <p className={`text-sm text-center py-4 ${textMuted}`}>本月暫無事件</p>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -1810,209 +1840,41 @@ export default function HomePage() {
         )}
 
         {activeTab === "settings" && (
-          <div className="px-5 pt-5 pb-4 max-w-lg mx-auto space-y-4">
-            <div className="pb-2">
-              <h2 className="font-display text-[22px] font-bold tracking-tight">設定</h2>
-            </div>
-            <div className={`${surface} rounded-2xl overflow-hidden`}>
-              <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
-                <p className={sectionLabel}>外觀</p>
-              </div>
-              <button onClick={toggleDarkMode} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-                <div className="flex items-center gap-3">
-                  {isDarkMode ? <Moon className="h-4 w-4" style={{ color: gold }} /> : <Sun className="h-4 w-4" style={{ color: gold }} />}
-                  <span className="text-sm font-medium">{isDarkMode ? "深色模式" : "淺色模式"}</span>
-                </div>
-                <Switch on={isDarkMode} />
-              </button>
-            </div>
-            <div className={`${surface} rounded-2xl overflow-hidden`}>
-              <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
-                <p className={sectionLabel}>資料</p>
-              </div>
-              <div className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: dataHealth.syncErrors ? "#A24936" : "#4F7B5E" }} />
-                  <div>
-                    <span className="text-sm font-medium block">資料健康狀態</span>
-                    <span className={`text-xs ${textMuted}`}>
-                      {dataHealth.lastSync ? `最近更新 ${dataHealth.lastSync.toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "尚無同步紀錄"}
-                    </span>
-                  </div>
-                </div>
-                <span className={`text-xs font-semibold ${dataHealth.syncErrors ? "text-[#A24936]" : "text-[#4F7B5E] dark:text-[#7FAE8F]"}`}>
-                  {dataHealth.syncErrors ? `${dataHealth.syncErrors} 筆異常` : "正常"}
-                </span>
-              </div>
-              <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
-              <button onClick={handleSyncPrices} disabled={syncing} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-                <div className="flex items-center gap-3">
-                  <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} style={{ color: gold }} />
-                  <span className="text-sm font-medium">更新價格</span>
-                </div>
-                <span className={`font-mono-ledger text-xs ${textMuted}`}>{syncing ? "更新中…" : `USD/TWD ${exchangeRate?.toFixed(2) || "—"}`}</span>
-              </button>
-              </div>
-              <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
-                <button onClick={() => setShowHistoryForm(true)} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-                  <div className="flex items-center gap-3">
-                    <TrendingUp className="h-4 w-4" style={{ color: gold }} />
-                    <span className="text-sm font-medium">手動補登走勢</span>
-                  </div>
-                  <ChevronRight className={`h-4 w-4 ${textMuted}`} />
-                </button>
-              </div>
-              <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
-                <button onClick={handleExportCsv} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-                  <div className="flex items-center gap-3">
-                    <Download className="h-4 w-4" style={{ color: gold }} />
-                    <span className="text-sm font-medium">匯出 CSV 報表</span>
-                  </div>
-                  <span className={`text-xs ${textMuted}`}>資產清單＋歷史</span>
-                </button>
-              </div>
-            </div>
-            <div className={`${surface} rounded-2xl overflow-hidden`}>
-              <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
-                <p className={sectionLabel}>安全與提醒</p>
-              </div>
-              <button onClick={handleToggleBioLock} disabled={!isNative()} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
-                <div className="flex items-center gap-3">
-                  <Fingerprint className="h-4 w-4" style={{ color: gold }} />
-                  <div className="text-left">
-                    <span className="text-sm font-medium block">Face ID 解鎖</span>
-                    <span className={`text-xs ${textMuted}`}>開啟後進入 App 需先驗證</span>
-                  </div>
-                </div>
-                {isNative() ? <Switch on={bioEnabled} /> : <span className={`text-[10px] font-bold ${textMuted}`}>APP ONLY</span>}
-              </button>
-              <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
-                <button onClick={() => isNative() && setNotifyExpanded((v) => !v)} disabled={!isNative()} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
-                  <div className="flex items-center gap-3">
-                    <Bell className="h-4 w-4" style={{ color: gold }} />
-                    <div className="text-left">
-                      <span className="text-sm font-medium block">事件提醒通知</span>
-                      <span className={`text-xs ${textMuted}`}>財報、除息、配息前一天提醒</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-semibold ${notifyEnabled ? "text-[#4F7B5E] dark:text-[#7FAE8F]" : textMuted}`}>
-                      {isNative() ? `${Object.values(notifyPrefs).filter(Boolean).length}/3 已開啟` : "APP ONLY"}
-                    </span>
-                    {isNative() && <ChevronRight className={`h-3.5 w-3.5 ${textMuted} transition-transform ${notifyExpanded ? "rotate-90" : ""}`} />}
-                  </div>
-                </button>
-                {notifyExpanded && (
-                  <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
-                    <button onClick={handleToggleNotify} className="w-full flex items-center justify-between pl-11 pr-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-                      <span className="text-sm">{notifyEnabled ? "全部關閉" : "全部開啟"}</span>
-                      <Switch on={notifyEnabled} />
-                    </button>
-                    {[
-                      { key: "EARNINGS", label: "財報公佈" },
-                      { key: "EX_DIVIDEND", label: "除息/權" },
-                      { key: "DIVIDEND_PAY", label: "配息入帳" },
-                    ].map((t) => (
-                      <button key={t.key} onClick={() => handleToggleNotifyType(t.key)} className="w-full flex items-center justify-between pl-11 pr-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors border-t border-black/[0.05] dark:border-white/[0.05]">
-                        <span className="text-sm">{t.label}</span>
-                        <Switch on={notifyPrefs[t.key]} />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className={`border-t border-black/[0.06] dark:border-white/[0.06] flex items-center justify-between p-4 ${!isNative() ? "opacity-50" : ""}`}>
-                <div className="flex items-center gap-3">
-                  <Bell className="h-4 w-4" style={{ color: gold }} />
-                  <div className="text-left">
-                    <span className="text-sm font-medium block">每日記帳提醒</span>
-                    <span className={`text-xs ${textMuted}`}>每天固定時間提醒你記帳</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    value={dailyReminderTime}
-                    onChange={(e) => setDailyReminderTime(e.target.value)}
-                    disabled={!isNative()}
-                    className="font-mono-ledger text-sm bg-transparent border-b border-black/15 dark:border-white/15 disabled:opacity-40"
-                  />
-                  <button
-                    onClick={() => {
-                      if (!isNative()) { showToast("通知需在 iOS App 中使用", "error"); return; }
-                      setDailyReminderEnabled((v) => !v);
-                    }}
-                    disabled={!isNative()}
-                  >
-                    {isNative() ? <Switch on={dailyReminderEnabled} /> : <span className={`text-[10px] font-bold ${textMuted}`}>APP ONLY</span>}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className={`${surface} rounded-2xl overflow-hidden`}>
-              <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
-                <p className={sectionLabel}>帳號</p>
-              </div>
-              {currentUser && (
-                <div className="flex items-center justify-between p-4 border-b border-black/[0.06] dark:border-white/[0.06]">
-                  <div className="flex items-center gap-3">
-                    <GoogleIcon className="h-4 w-4" />
-                    <div>
-                      <span className="text-sm font-medium block">Google 帳號</span>
-                      <span className={`text-xs ${textMuted}`}>{currentUser.hasGoogle ? "已綁定" : "尚未綁定"}</span>
-                    </div>
-                  </div>
-                  {currentUser.hasGoogle ? (
-                    currentUser.hasPassword ? (
-                      <button onClick={handleGoogleUnlink} disabled={googleUnlinking} className={`text-xs font-semibold ${textMuted} hover:text-[#A24936] transition-colors`}>
-                        {googleUnlinking ? "處理中…" : "取消綁定"}
-                      </button>
-                    ) : (
-                      <span className={`text-xs ${textMuted}`}>✓</span>
-                    )
-                  ) : (
-                    <a href="/api/auth/google" className="text-xs font-semibold" style={{ color: gold }}>綁定</a>
-                  )}
-                </div>
-              )}
-              {currentUser && (
-                <div className="flex items-center justify-between p-4 border-b border-black/[0.06] dark:border-white/[0.06]">
-                  <div className="flex items-center gap-3">
-                    <AppleIcon className={`h-4 w-4 ${textPrimary}`} />
-                    <div>
-                      <span className="text-sm font-medium block">Apple 帳號</span>
-                      <span className={`text-xs ${textMuted}`}>{currentUser.hasApple ? "已綁定" : "尚未綁定"}</span>
-                    </div>
-                  </div>
-                  {currentUser.hasApple ? (
-                    currentUser.hasPassword ? (
-                      <button onClick={handleAppleUnlink} disabled={appleUnlinking} className={`text-xs font-semibold ${textMuted} hover:text-[#A24936] transition-colors`}>
-                        {appleUnlinking ? "處理中…" : "取消綁定"}
-                      </button>
-                    ) : (
-                      <span className={`text-xs ${textMuted}`}>✓</span>
-                    )
-                  ) : (
-                    <a href="/api/auth/apple" className="text-xs font-semibold" style={{ color: gold }}>綁定</a>
-                  )}
-                </div>
-              )}
-              <button onClick={handleLogout} className="w-full flex items-center p-4 gap-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-                <LogOut className="h-4 w-4 text-[#A24936]" />
-                <span className="text-sm font-medium text-[#A24936]">登出</span>
-              </button>
-            </div>
-            <div className="rounded-2xl overflow-hidden border border-[#A24936]/25 bg-[#A24936]/[0.03]">
-              <div className="px-4 py-2 border-b border-[#A24936]/15">
-                <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#A24936]">危險操作</p>
-              </div>
-              <button onClick={() => setShowDeleteConfirm(true)} className="w-full flex items-center p-4 gap-3 hover:bg-[#A24936]/5 transition-colors">
-                <AlertTriangle className="h-4 w-4 text-[#A24936]" />
-                <span className="text-sm font-medium text-[#A24936]">刪除帳號與所有資料</span>
-              </button>
-            </div>
-            <p className={`text-center text-xs ${textMuted} pb-2`}>Zeno Worth · 版本 1.0</p>
-          </div>
+          <SettingsTab
+            surface={surface}
+            sectionLabel={sectionLabel}
+            textMuted={textMuted}
+            textPrimary={textPrimary}
+            gold={gold}
+            isDarkMode={isDarkMode}
+            toggleDarkMode={toggleDarkMode}
+            dataHealth={dataHealth}
+            handleSyncPrices={handleSyncPrices}
+            syncing={syncing}
+            exchangeRate={exchangeRate}
+            setShowHistoryForm={setShowHistoryForm}
+            handleExportCsv={handleExportCsv}
+            handleToggleBioLock={handleToggleBioLock}
+            bioEnabled={bioEnabled}
+            notifyExpanded={notifyExpanded}
+            setNotifyExpanded={setNotifyExpanded}
+            notifyEnabled={notifyEnabled}
+            notifyPrefs={notifyPrefs}
+            handleToggleNotify={handleToggleNotify}
+            handleToggleNotifyType={handleToggleNotifyType}
+            dailyReminderTime={dailyReminderTime}
+            setDailyReminderTime={setDailyReminderTime}
+            dailyReminderEnabled={dailyReminderEnabled}
+            setDailyReminderEnabled={setDailyReminderEnabled}
+            showToast={showToast}
+            currentUser={currentUser}
+            googleUnlinking={googleUnlinking}
+            handleGoogleUnlink={handleGoogleUnlink}
+            appleUnlinking={appleUnlinking}
+            handleAppleUnlink={handleAppleUnlink}
+            handleLogout={handleLogout}
+            setShowDeleteConfirm={setShowDeleteConfirm}
+          />
         )}
       </div>
 

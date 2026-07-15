@@ -1,13 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import { getUserIdFromRequest } from "@/lib/auth";
 
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 // DELETE /api/user/me → 用戶自己刪除帳號（Apple 審核強制要求）
 export async function DELETE(request: NextRequest) {

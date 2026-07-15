@@ -5,6 +5,17 @@ export const dynamic = "force-dynamic";
 
 type StockEvent = { symbol: string; name: string; date: string; type: "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND_PAY" };
 
+// 這支是單一長駐 Node process（非 serverless），模組層級變數在整個 process 生命週期內有效，
+// 可以拿來當簡單的行程內快取。使用者數一多，不同人常持有同一檔股票（例如 2330、00929），
+// 沒有快取的話每個人開資產頁都會重打一次 Yahoo/TWSE/TPEX，容易把外部 API 打到限流／封鎖，
+// 進而讓「所有人」的除息資料都抓不到。
+const YAHOO_CACHE_TTL_MS = 60 * 60 * 1000; // calendarEvents 不會盤中變動，快取 1 小時足夠
+const TW_FORECAST_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 除權除息預告表一天更新一次，快取 6 小時
+
+type CacheEntry<T> = { data: T; expiresAt: number };
+const yahooCache = new Map<string, CacheEntry<{ name: string; events: StockEvent[] }>>();
+let twForecastCache: CacheEntry<{ twse: Map<string, string>; tpex: Map<string, string> }> | null = null;
+
 // 民國年日期字串（"115年07月21日" 或緊湊格式 "1150721"）轉 ISO 字串
 function parseRocDate(rocYear: number, month: number, day: number): string | null {
   if (!rocYear || !month || !day) return null;
@@ -68,9 +79,16 @@ export async function GET(request: NextRequest) {
   const errors: string[] = [];
 
   const hasTwSymbol = symbols.some((s) => /\.TW$/i.test(s));
-  const [twseForecast, tpexForecast] = hasTwSymbol
-    ? await Promise.all([fetchTwseExRightForecast(), fetchTpexExRightForecast()])
-    : [new Map<string, string>(), new Map<string, string>()];
+  let twseForecast = new Map<string, string>();
+  let tpexForecast = new Map<string, string>();
+  if (hasTwSymbol) {
+    if (twForecastCache && twForecastCache.expiresAt > Date.now()) {
+      ({ twse: twseForecast, tpex: tpexForecast } = twForecastCache.data);
+    } else {
+      [twseForecast, tpexForecast] = await Promise.all([fetchTwseExRightForecast(), fetchTpexExRightForecast()]);
+      twForecastCache = { data: { twse: twseForecast, tpex: tpexForecast }, expiresAt: Date.now() + TW_FORECAST_CACHE_TTL_MS };
+    }
+  }
 
   await Promise.all(
     symbols.map(async (symbol) => {
@@ -78,24 +96,34 @@ export async function GET(request: NextRequest) {
       let name = symbol;
       let gotExDividendFromYahoo = false;
 
-      try {
-        const res = await yahoo.quoteSummary(symbol, { modules: ["calendarEvents", "price"] });
-        name = res.price?.shortName ?? symbol;
+      const cached = yahooCache.get(symbol);
+      if (cached && cached.expiresAt > Date.now()) {
+        name = cached.data.name;
+        events.push(...cached.data.events);
+        gotExDividendFromYahoo = cached.data.events.some((e) => e.type === "EX_DIVIDEND");
+      } else {
+        const symbolEvents: StockEvent[] = [];
+        try {
+          const res = await yahoo.quoteSummary(symbol, { modules: ["calendarEvents", "price"] });
+          name = res.price?.shortName ?? symbol;
 
-        for (const d of res.calendarEvents?.earnings?.earningsDate ?? []) {
-          events.push({ symbol: displaySymbol, name, date: new Date(d).toISOString(), type: "EARNINGS" });
+          for (const d of res.calendarEvents?.earnings?.earningsDate ?? []) {
+            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(d).toISOString(), type: "EARNINGS" });
+          }
+          if (res.calendarEvents?.exDividendDate) {
+            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.exDividendDate).toISOString(), type: "EX_DIVIDEND" });
+            gotExDividendFromYahoo = true;
+          }
+          if (res.calendarEvents?.dividendDate) {
+            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.dividendDate).toISOString(), type: "DIVIDEND_PAY" });
+          }
+          yahooCache.set(symbol, { data: { name, events: symbolEvents }, expiresAt: Date.now() + YAHOO_CACHE_TTL_MS });
+        } catch (error) {
+          // Yahoo 對台股 ETF 常常整支查不到（no fundamentals data），不當作致命錯誤，
+          // 記錄下來後續改用 TWSE/TPEX 備援繼續補資料，不影響其他股票
+          errors.push(`Yahoo lookup failed for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
         }
-        if (res.calendarEvents?.exDividendDate) {
-          events.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.exDividendDate).toISOString(), type: "EX_DIVIDEND" });
-          gotExDividendFromYahoo = true;
-        }
-        if (res.calendarEvents?.dividendDate) {
-          events.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.dividendDate).toISOString(), type: "DIVIDEND_PAY" });
-        }
-      } catch (error) {
-        // Yahoo 對台股 ETF 常常整支查不到（no fundamentals data），不當作致命錯誤，
-        // 記錄下來後續改用 TWSE/TPEX 備援繼續補資料，不影響其他股票
-        errors.push(`Yahoo lookup failed for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+        events.push(...symbolEvents);
       }
 
       // 台股且 Yahoo 沒抓到除息日 → 用證交所/櫃買中心的除權除息預告表補上

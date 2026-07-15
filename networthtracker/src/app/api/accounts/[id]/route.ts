@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import YahooFinance from "yahoo-finance2"
-import { PrismaClient } from "@prisma/client"
 import { getUserIdFromRequest } from "@/lib/auth"
 import { encrypt } from "@/lib/crypto"
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan"
 
-declare global {
-  // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined
-}
 
-const prisma = globalThis.prisma || new PrismaClient()
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma
+import { prisma } from "@/lib/prisma";
 
 const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"]
 const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"]

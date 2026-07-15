@@ -1,14 +1,9 @@
 // src/app/api/admin/route.ts
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import { getUserIdFromRequest } from "@/lib/auth";
 
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 const ADMIN_ID = process.env.ADMIN_USER_ID;
 

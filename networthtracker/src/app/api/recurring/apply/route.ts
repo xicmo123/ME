@@ -1,14 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan";
 
-declare global {
-  var prisma: PrismaClient | undefined;
-}
-const prisma = globalThis.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+import { prisma } from "@/lib/prisma";
 
 // POST /api/recurring/apply → 套用「本月已到期、尚未入帳」的定期扣款。
 // 由前端在每次進入 App 時呼叫（同 history/snapshot 的模式，取代先前被移除的 cron）。
