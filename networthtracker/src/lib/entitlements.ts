@@ -14,7 +14,6 @@ export type Entitlements = {
   };
   features: {
     apiSync: boolean; // 交易所 API 自動同步（Bitfinex/Binance/OKX/Coinbase）
-    dividendCalendar: boolean; // 除息/財報行事曆
     csvExport: boolean; // CSV 報表匯出
     recurringTransactions: boolean; // 定期扣款自動記帳
   };
@@ -25,13 +24,11 @@ const PRO_LIMITS: Entitlements["limits"] = { maxAccounts: null, maxGoals: null }
 
 const FREE_FEATURES: Entitlements["features"] = {
   apiSync: false,
-  dividendCalendar: false,
   csvExport: false,
   recurringTransactions: false,
 };
 const PRO_FEATURES: Entitlements["features"] = {
   apiSync: true,
-  dividendCalendar: true,
   csvExport: true,
   recurringTransactions: true,
 };

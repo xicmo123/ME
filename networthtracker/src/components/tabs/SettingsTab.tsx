@@ -23,7 +23,6 @@ const PLAN_COMPARISON: { label: string; free: string; pro: string }[] = [
   { label: "帳戶數量", free: "最多 20 個", pro: "無限" },
   { label: "財務目標", free: "最多 3 個", pro: "無限" },
   { label: "交易所自動同步", free: "—", pro: "✓" },
-  { label: "除息／財報行事曆", free: "—", pro: "✓" },
   { label: "CSV 報表匯出", free: "—", pro: "✓" },
   { label: "定期扣款自動記帳", free: "—", pro: "✓" },
 ];

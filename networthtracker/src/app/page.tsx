@@ -186,6 +186,7 @@ export default function HomePage() {
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [editingGoal, setEditingGoal] = useState<any | null>(null);
   const [goalForm, setGoalForm] = useState({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" });
+  const [goalFormError, setGoalFormError] = useState<string | null>(null);
   const [hideBalance, setHideBalance] = useState(false);
   const [displayCurrency, setDisplayCurrency] = useState<"TWD" | "USD">("TWD");
   const [bioEnabled, setBioEnabled] = useState(false);
@@ -228,6 +229,8 @@ export default function HomePage() {
   const amountFieldLabel = usesAmountInput ? (formData.type === "LIABILITY" ? "貸款總金額" : "總金額") : "持有股數";
   const showApiFields = formData.category === "CRYPTO" && formData.isApiConnected;
   const stockSearchMarket = formData.category === "TAIWAN_STOCK" ? "TW" : formData.category === "US_STOCK" ? "US" : formData.category === "CRYPTO" && !isCryptoApiMode ? "CRYPTO" : null;
+
+  useEffect(() => { if (showGoalForm) setGoalFormError(null); }, [showGoalForm]);
 
   useEffect(() => {
     if (!stockSearchMarket || !formData.symbol.trim()) { setSymbolSuggestions([]); return; }
@@ -639,6 +642,7 @@ export default function HomePage() {
 
   async function handleGoalSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setGoalFormError(null);
     const method = editingGoal ? "PUT" : "POST";
     const body = editingGoal
       ? { id: editingGoal.id, ...goalForm, targetAmount: Number(goalForm.targetAmount) }
@@ -650,7 +654,10 @@ export default function HomePage() {
       await fetchGoals();
       showToast(editingGoal ? "目標已更新" : "目標已新增");
     } else {
-      showToast("儲存目標失敗，請再試一次", "error");
+      const data = await res.json().catch(() => null);
+      const message = data?.message || "儲存目標失敗，請再試一次";
+      setGoalFormError(message);
+      showToast(message, "error");
     }
   }
 
@@ -683,11 +690,17 @@ export default function HomePage() {
     setLoading(true);
     try {
       const res = await fetch(editingAccountId ? `/api/accounts/${editingAccountId}` : "/api/accounts", { method: editingAccountId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error("儲存失敗");
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.message || "儲存失敗");
+      }
       setTimeout(() => resetForm(), 500);
       await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchGoals()]);
       showToast(editingAccountId ? "資產已更新" : "資產已新增");
-    } catch { setError("儲存發生錯誤。"); showToast("儲存失敗", "error"); } finally { setLoading(false); }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "儲存發生錯誤。";
+      setError(message); showToast(message, "error");
+    } finally { setLoading(false); }
   }
 
   async function handleDelete(accountId: string, name: string) {
@@ -2151,6 +2164,7 @@ export default function HomePage() {
             </div>
             <div className="p-5">
               <form onSubmit={handleGoalSubmit} className="space-y-4">
+                {goalFormError && <p className="text-sm font-medium text-[#A24936] bg-[#A24936]/8 p-3 rounded-lg">{goalFormError}</p>}
                 <div>
                   <label className={`block text-xs mb-2 ${sectionLabel}`}>目標名稱</label>
                   <input value={goalForm.name} onChange={e => setGoalForm({ ...goalForm, name: e.target.value })} placeholder="例如：買房頭期款" className={inputCls} required />
