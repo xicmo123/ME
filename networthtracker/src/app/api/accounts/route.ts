@@ -140,13 +140,13 @@ export async function POST(request: NextRequest) {
   const entitlements = await getEntitlementsForUser(userId);
 
   if (isApiMode && !entitlements.features.apiSync) {
-    return NextResponse.json({ message: "交易所 API 自動同步為付費功能，請升級方案後再連接。", code: "UPGRADE_REQUIRED", feature: "apiSync" }, { status: 402 });
+    return NextResponse.json({ message: "交易所自動同步是 Pro 專屬功能，升級 Pro 解鎖，免手動輸入、資產即時自動更新。", code: "UPGRADE_REQUIRED", feature: "apiSync" }, { status: 402 });
   }
 
   if (entitlements.limits.maxAccounts !== null) {
     const activeAccountCount = await prisma.account.count({ where: { userId, isActive: true } });
     if (activeAccountCount >= entitlements.limits.maxAccounts) {
-      return NextResponse.json({ message: `免費方案最多可建立 ${entitlements.limits.maxAccounts} 個帳戶，請升級方案以新增更多。`, code: "UPGRADE_REQUIRED", feature: "maxAccounts" }, { status: 402 });
+      return NextResponse.json({ message: `帳戶數已達免費方案上限（${entitlements.limits.maxAccounts} 個），升級 Pro 解鎖無限帳戶，完整掌握所有資產。`, code: "UPGRADE_REQUIRED", feature: "maxAccounts" }, { status: 402 });
     }
   }
   const trimmedSymbol = typeof symbol === "string" ? symbol.trim() : "";

@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
   if (entitlements.limits.maxGoals !== null) {
     const activeGoalCount = await prisma.goal.count({ where: { userId, isActive: true } });
     if (activeGoalCount >= entitlements.limits.maxGoals) {
-      return NextResponse.json({ message: `免費方案最多可建立 ${entitlements.limits.maxGoals} 個目標，請升級方案以新增更多。`, code: "UPGRADE_REQUIRED", feature: "maxGoals" }, { status: 402 });
+      return NextResponse.json({ message: `目標數已達免費方案上限（${entitlements.limits.maxGoals} 個），升級 Pro 解鎖無限目標，追蹤更多人生里程碑。`, code: "UPGRADE_REQUIRED", feature: "maxGoals" }, { status: 402 });
     }
   }
 

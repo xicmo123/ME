@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
   const entitlements = await getEntitlementsForUser(userId);
   if (!entitlements.features.dividendCalendar) {
-    return NextResponse.json({ events: [], upgradeRequired: true, feature: "dividendCalendar" });
+    return NextResponse.json({ events: [], upgradeRequired: true, feature: "dividendCalendar", message: "除息／財報行事曆是 Pro 專屬功能，升級 Pro 解鎖，不錯過每一次除息與財報公佈。" });
   }
 
   const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
