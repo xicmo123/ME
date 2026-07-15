@@ -65,3 +65,15 @@ export async function getEntitlementsForUser(userId: string): Promise<Entitlemen
   }
   return resolveEntitlements(user);
 }
+
+// 降級後保留最早建立的 N 筆帳戶維持可用，其餘視為「鎖定」——鎖定帳戶的金額不計入
+// 總資產/負債/淨資產與資產配置，等重新升級成 Pro 才自動解鎖、資料回歸計算。
+// 前端（鎖頭遮罩）跟後端（淨值計算、目標進度）都呼叫這支，確保兩邊判斷一致。
+export function computeLockedAccountIds<T extends { id: string; createdAt: Date }>(
+  accounts: T[],
+  maxAccounts: number | null
+): Set<string> {
+  if (maxAccounts == null) return new Set();
+  const byCreatedAsc = [...accounts].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return new Set(byCreatedAsc.slice(maxAccounts).map((a) => a.id));
+}

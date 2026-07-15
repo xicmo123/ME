@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
-import { getEntitlementsForUser } from "@/lib/entitlements";
+import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitlements";
 
 import { prisma } from "@/lib/prisma";
 
@@ -20,8 +20,13 @@ export async function GET(request: NextRequest) {
     where: { userId, isActive: true },
   });
 
-  const totalAssets = accounts.filter(a => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
-  const totalLiabilities = accounts.filter(a => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+  // 降級後被鎖定的帳戶不計入淨值，跟 /api/accounts、前端 summary 用同一套判斷
+  const entitlements = await getEntitlementsForUser(userId);
+  const lockedAccountIds = computeLockedAccountIds(accounts, entitlements.limits.maxAccounts);
+  const unlockedAccounts = accounts.filter((a) => !lockedAccountIds.has(a.id));
+
+  const totalAssets = unlockedAccounts.filter(a => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+  const totalLiabilities = unlockedAccounts.filter(a => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
   const netWorth = totalAssets - totalLiabilities;
 
   const goalsWithProgress = goals.map(goal => {
@@ -30,7 +35,7 @@ export async function GET(request: NextRequest) {
     if (goal.type === "NET_WORTH") {
       currentAmount = netWorth;
     } else if (goal.type === "ACCOUNT" && goal.accountId) {
-      const account = accounts.find(a => a.id === goal.accountId);
+      const account = unlockedAccounts.find(a => a.id === goal.accountId);
       currentAmount = Number(account?.currentValue ?? 0);
     }
 

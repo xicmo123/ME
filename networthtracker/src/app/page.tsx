@@ -235,11 +235,15 @@ export default function HomePage() {
       .finally(() => setStockEventsLoading(false));
   }, [activeTab, heldStockSymbols]);
 
+  // 降級後被鎖定的帳戶不計入任何淨值計算，等重新升級才自動回歸——用同一個過濾條件貫穿
+  // summary/allocation，避免漏改其中一處導致總資產和資產配置對不起來。
+  const unlockedAccounts = useMemo(() => accounts.filter((a: any) => !a.isLocked), [accounts]);
+
   const summary = useMemo(() => {
-    const totalAssets = accounts.filter(a => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
-    const totalLiabilities = accounts.filter(a => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+    const totalAssets = unlockedAccounts.filter(a => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+    const totalLiabilities = unlockedAccounts.filter(a => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
     return { totalAssets, totalLiabilities, netWorth: totalAssets - totalLiabilities };
-  }, [accounts]);
+  }, [unlockedAccounts]);
 
   // 資產配置：依分類分桶，用品牌色系
   const allocation = useMemo(() => {
@@ -251,11 +255,11 @@ export default function HomePage() {
       { name: "其他", cats: ["FIXED_ASSET", "RECEIVABLE"], color: "#8A8F82" },
     ];
     const rows = buckets
-      .map((b) => ({ name: b.name, color: b.color, value: accounts.filter((a: any) => a.type === "ASSET" && b.cats.includes(a.category)).reduce((s: number, a: any) => s + Number(a.currentValue ?? 0), 0) }))
+      .map((b) => ({ name: b.name, color: b.color, value: unlockedAccounts.filter((a: any) => a.type === "ASSET" && b.cats.includes(a.category)).reduce((s: number, a: any) => s + Number(a.currentValue ?? 0), 0) }))
       .filter((r) => r.value > 0);
     const total = rows.reduce((s, r) => s + r.value, 0);
     return { rows, total };
-  }, [accounts]);
+  }, [unlockedAccounts]);
 
   // 上月回顧：上月最後一筆快照 vs 前月最後一筆快照
   const monthlyReport = useMemo(() => {
@@ -1040,20 +1044,14 @@ export default function HomePage() {
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
   }, []);
 
-  // 降級（或本來就超過免費上限）後，保留最早建立的 N 筆維持可用，其餘蓋上鎖頭遮罩而非直接刪除
+  // 降級（或本來就超過免費上限）後，保留最早建立的 N 筆維持可用，其餘蓋上鎖頭遮罩而非直接刪除。
+  // 帳戶的鎖定狀態（isLocked）由後端 /api/accounts 算好回傳，跟淨值計算共用同一份判斷，避免前後端兜不起來；
+  // 目標本身不影響淨值計算，鎖定純粹是前端顯示層面，維持在這裡算即可。
   const lockedGoalIds = useMemo(() => {
     const max = currentUser?.entitlements?.limits.maxGoals;
     if (max == null) return new Set<string>();
     return new Set(goals.slice(max).map((g: any) => g.id));
   }, [goals, currentUser]);
-
-  const lockedAccountIds = useMemo(() => {
-    const max = currentUser?.entitlements?.limits.maxAccounts;
-    if (max == null) return new Set<string>();
-    const active = accounts.filter((a: any) => a.isActive !== false);
-    const byCreatedAsc = [...active].sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    return new Set(byCreatedAsc.slice(max).map((a: any) => a.id));
-  }, [accounts, currentUser]);
 
   const bg = "bg-[#EEF0EC] dark:bg-[#0B0D12]";
   // 卡片改走 fintech 扁平風：白底＋柔和陰影，不再用漸層描邊（圓角由各處自帶的 rounded-* 決定）
@@ -1364,7 +1362,7 @@ export default function HomePage() {
             )}
 
             {displayedAccountGroups.map((group: any) => {
-              const groupTotal = group.cards.reduce((sum: number, c: any) => sum + Number(c.currentValue ?? 0), 0);
+              const groupTotal = group.cards.filter((c: any) => !c.account.isLocked).reduce((sum: number, c: any) => sum + Number(c.currentValue ?? 0), 0);
               const collapsed = !accountSearch && collapsedAccountGroups[group.title];
               return (
                 <div key={group.title} className="space-y-2.5">
@@ -1403,7 +1401,7 @@ export default function HomePage() {
                       const isLiability = group.title === "負債總額";
                       return (
                         <div key={card.id} className={`relative w-[196px] shrink-0 snap-start overflow-hidden rounded-[24px] p-4 pl-5 ${isLiability ? "bg-[#FCF4F2] dark:bg-[#1D1416] border border-[#A24936]/25 shadow-[0_10px_30px_-14px_rgba(28,31,26,0.16)] dark:shadow-[0_10px_30px_-14px_rgba(0,0,0,0.55)]" : surface}`}>
-                          {lockedAccountIds.has(card.account.id) && <LockedOverlay onClick={() => setActiveTab("settings")} />}
+                          {card.account.isLocked && <LockedOverlay onClick={() => setActiveTab("settings")} />}
                           <span className="absolute inset-y-0 left-0 w-1" style={{ background: group.color }} />
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">

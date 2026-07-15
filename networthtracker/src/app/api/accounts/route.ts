@@ -6,7 +6,7 @@ import YahooFinance from "yahoo-finance2";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan";
-import { getEntitlementsForUser } from "@/lib/entitlements";
+import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitlements";
 
 
 import { prisma } from "@/lib/prisma";
@@ -66,6 +66,9 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  const entitlements = await getEntitlementsForUser(userId);
+  const lockedAccountIds = computeLockedAccountIds(accounts, entitlements.limits.maxAccounts);
+
   // 有設定總期數的負債帳戶，額外算一下「已繳幾期」給前端顯示進度：
   // 有填貸款起算日「跟」扣款日就用起算日推算（不怕帳戶是後來才補登、或中間漏繳打亂交易筆數），
   // 不然退回舊方法：用這個帳戶累積的 AUTO_DEDUCTION 交易筆數概算。
@@ -104,6 +107,7 @@ export async function GET(request: NextRequest) {
       currentValue,
       hasApiCredentials: Boolean(apiKey && apiSecret),
       paidInstallments,
+      isLocked: lockedAccountIds.has(rest.id),
     };
   });
 

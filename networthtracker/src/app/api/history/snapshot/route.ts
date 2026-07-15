@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { isTrustedCronRequest } from "@/lib/cron-auth";
+import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitlements";
 
 
 import { prisma } from "@/lib/prisma";
@@ -9,8 +10,13 @@ import { prisma } from "@/lib/prisma";
 async function snapshotForUser(userId: string, twDateStr: string, snapshotDate: Date) {
   const accounts = await prisma.account.findMany({ where: { isActive: true, userId } });
 
-  const totalAssets = accounts.filter((a) => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
-  const totalLiabilities = accounts.filter((a) => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+  // 降級後被鎖定的帳戶不計入快照，跟即時淨值計算保持一致，避免走勢圖出現「解鎖前」虛高的數字
+  const entitlements = await getEntitlementsForUser(userId);
+  const lockedAccountIds = computeLockedAccountIds(accounts, entitlements.limits.maxAccounts);
+  const unlockedAccounts = accounts.filter((a) => !lockedAccountIds.has(a.id));
+
+  const totalAssets = unlockedAccounts.filter((a) => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+  const totalLiabilities = unlockedAccounts.filter((a) => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
   const netWorth = totalAssets - totalLiabilities;
 
   const result = await prisma.assetHistory.upsert({
