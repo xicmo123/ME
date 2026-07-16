@@ -43,7 +43,7 @@ const categoriesByType: Record<string, string[]> = {
   ASSET: ["CASH", "BANK_ACCOUNT", "TAIWAN_STOCK", "US_STOCK", "CRYPTO", "FIXED_ASSET", "RECEIVABLE"],
   LIABILITY: ["PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"],
 };
-const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "0", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: "", deductionDate: "", interestRate: "", loanTermMonths: "", loanStartDate: "", deductFromAccountId: "" };
+const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: "", deductionDate: "", interestRate: "", loanTermMonths: "", loanStartDate: "", deductFromAccountId: "" };
 const exchangesRequiringPassphrase = ["OKX"];
 
 type Tab = "overview" | "calendar" | "trends" | "settings";
@@ -386,9 +386,24 @@ export default function HomePage() {
     return `${d.getFullYear()}/${d.getMonth() + 1}`;
   };
 
+  // 股價 API 回傳的公司名稱常是英文法定全名（例如「Taiwan Semiconductor Mfg...」），
+  // 使用者新增這檔股票時自己填過中文名稱，行事曆事件優先顯示這個，比較符合其他畫面的風格
+  const stockNameBySymbol = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of accounts) {
+      if ((a.category === "TAIWAN_STOCK" || a.category === "US_STOCK") && a.symbol && a.name) {
+        map[String(a.symbol).replace(/\.TW$/i, "").toUpperCase()] = a.name;
+      }
+    }
+    return map;
+  }, [accounts]);
+
   const allCalendarEvents = useMemo(() => {
-    return stockEvents.map((ev) => ({ ...ev, id: undefined, note: undefined }));
-  }, [stockEvents]);
+    return stockEvents.map((ev) => {
+      const key = ev.symbol.replace(/\.TW$/i, "").toUpperCase();
+      return { ...ev, name: stockNameBySymbol[key] ?? ev.name, id: undefined, note: undefined };
+    });
+  }, [stockEvents, stockNameBySymbol]);
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, typeof allCalendarEvents> = {};
@@ -2232,7 +2247,7 @@ export default function HomePage() {
                   {!showApiFields && (
                     <div>
                       <label className={`block text-xs mb-2 ${sectionLabel}`}>{amountFieldLabel}</label>
-                      <input type="number" inputMode="decimal" step="any" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                      <input type="number" inputMode="decimal" step="any" placeholder="0" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} className={`${inputCls} font-mono-ledger`} />
                       {formData.type === "LIABILITY" && formData.loanStartDate && (
                         <p className={`text-[11px] mt-1.5 ${textMuted}`}>這裡填的是貸款本金（原始總額），目前餘額會依本金＋已繳期數自動算出，顯示在卡片上。</p>
                       )}
