@@ -164,7 +164,7 @@ export function SettingsTab({
             {isDarkMode ? <Moon className="h-4 w-4" style={{ color: gold }} /> : <Sun className="h-4 w-4" style={{ color: gold }} />}
             <span className="text-sm font-medium">{isDarkMode ? "深色模式" : "淺色模式"}</span>
           </div>
-          <Switch on={isDarkMode} />
+          <Switch on={!isDarkMode} />
         </button>
       </div>
       <div className={`${surface} rounded-2xl overflow-hidden`}>

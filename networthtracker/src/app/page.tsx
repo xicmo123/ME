@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
-import CountUp from "react-countup";
 import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
@@ -210,6 +209,8 @@ export default function HomePage() {
   const [accountSearch, setAccountSearch] = useState("");
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [currentUser, setCurrentUser] = useState<{
     email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean;
     entitlements?: { tier: "FREE" | "PRO"; isPro: boolean; limits: { maxAccounts: number | null; maxGoals: number | null }; manualSyncLimitPer4Hours?: number | null };
@@ -270,6 +271,11 @@ export default function HomePage() {
     const totalLiabilities = unlockedAccounts.filter(a => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
     return { totalAssets, totalLiabilities, netWorth: totalAssets - totalLiabilities };
   }, [unlockedAccounts]);
+
+  // 淨資產位數太多時（上億甚至上百億）固定字級會被 truncate 裁掉，改用位數驅動字級避免看不到完整金額
+  const heroNetWorthDisplay = displayCurrency === "USD" && exchangeRate ? Math.round(summary.netWorth / exchangeRate) : summary.netWorth;
+  const heroNetWorthDigits = String(Math.round(Math.abs(heroNetWorthDisplay))).length;
+  const heroValueFontSize = heroNetWorthDigits > 12 ? "clamp(0.95rem,4.6vw,1.35rem)" : heroNetWorthDigits > 9 ? "clamp(1.15rem,5.8vw,1.65rem)" : "clamp(1.5rem,7.5vw,2.25rem)";
 
   // 資產配置：依分類分桶，用品牌色系
   const allocation = useMemo(() => {
@@ -479,9 +485,11 @@ export default function HomePage() {
           }
         } catch { }
         await Promise.allSettled([fetchAccounts(), fetchTransactions(), fetchExchangeRate(), fetchGoals(), fetchSyncStatus()]);
+        setAccountsLoaded(true);
         // 每次進入 App 都記錄「今天」的淨資產快照，讓歷史逐日累積（否則走勢圖只有今天一個點）
         await fetch("/api/history/snapshot").catch(() => { });
         await fetchHistory();
+        setHistoryLoaded(true);
       })();
     }
   }, [isAuthenticated]);
@@ -517,8 +525,9 @@ export default function HomePage() {
   };
 
   // 主卡片金額依檢視幣別顯示；帳戶明細維持 NT$
+  // 資產/負債合計一律取整數位，避免兩個總額因尾數不同而出現小數位數不一致（例如 4,372,147,217.32 vs 14,777,224.4）
   const fmtMoney = (twd: number) =>
-    displayCurrency === "USD" && exchangeRate ? `US$ ${formatCurrency(Math.round(twd / exchangeRate))}` : `NT$ ${formatCurrency(twd)}`;
+    displayCurrency === "USD" && exchangeRate ? `US$ ${formatCurrency(Math.round(twd / exchangeRate))}` : `NT$ ${formatCurrency(Math.round(twd))}`;
 
   const handleExportCsv = () => {
     const esc = (v: any) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -1079,7 +1088,9 @@ export default function HomePage() {
   function renderTrendChartBody(heightClass: string) {
     return (
       <div className={heightClass}>
-        {mounted && compareMode && comparisonData.length > 0 ? (
+        {mounted && !historyLoaded ? (
+          <div className="h-full w-full animate-pulse rounded-xl bg-black/[0.04] dark:bg-white/[0.04]" />
+        ) : mounted && compareMode && comparisonData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={comparisonData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#8A8F82", fontSize: 11, fontFamily: "IBM Plex Mono" }} tickMargin={10} interval={0} tickFormatter={xAxisTickFormatter} />
@@ -1440,16 +1451,13 @@ export default function HomePage() {
                 </div>
               </div>
               <div className="flex items-baseline gap-2 mt-1 min-w-0">
-                <p className="font-mono-ledger text-[clamp(1.5rem,7.5vw,2.25rem)] font-bold leading-normal truncate">
-                  {hideBalance ? (
+                <p className="font-mono-ledger font-bold leading-normal whitespace-nowrap" style={{ fontSize: heroValueFontSize }}>
+                  {!accountsLoaded ? (
+                    <span className="inline-block h-[1em] w-40 max-w-full animate-pulse rounded-md bg-current opacity-20 align-middle" />
+                  ) : hideBalance ? (
                     `${displayCurrency === "USD" ? "US$" : "NT$"} ••••••`
                   ) : (
-                    <CountUp
-                      end={displayCurrency === "USD" && exchangeRate ? Math.round(summary.netWorth / exchangeRate) : summary.netWorth}
-                      duration={0.8}
-                      preserveValue
-                      formattingFn={(v) => `${displayCurrency === "USD" && exchangeRate ? "US$" : "NT$"} ${formatCurrency(v)}`}
-                    />
+                    `${displayCurrency === "USD" && exchangeRate ? "US$" : "NT$"} ${formatCurrency(Math.round(heroNetWorthDisplay))}`
                   )}
                 </p>
                 {/* 對比昨日 23:59 快照的當日漲跌幅，跟卡片上方那顆「本月比較」的 % 不同區間，故分開顯示 */}
@@ -1466,10 +1474,10 @@ export default function HomePage() {
               <div className="mt-3 flex flex-col gap-2 font-mono-ledger text-[11px] font-bold sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="min-w-0 max-w-full break-words rounded-full border px-2.5 py-1" style={{ borderColor: `${HERO_THEMES[heroTheme].assetBorder}59`, background: `${HERO_THEMES[heroTheme].assetBorder}1A`, color: HERO_THEMES[heroTheme].assetBorder }}>
-                    資產 {hideBalance ? "••••" : fmtMoney(summary.totalAssets)}
+                    資產 {!accountsLoaded ? "…" : hideBalance ? "••••" : fmtMoney(summary.totalAssets)}
                   </span>
                   <span className="min-w-0 max-w-full break-words rounded-full border px-2.5 py-1" style={{ borderColor: `${HERO_THEMES[heroTheme].liabilityBorder}59`, background: `${HERO_THEMES[heroTheme].liabilityBorder}1A`, color: HERO_THEMES[heroTheme].liabilityBorder }}>
-                    負債 {hideBalance ? "••••" : fmtMoney(summary.totalLiabilities)}
+                    負債 {!accountsLoaded ? "…" : hideBalance ? "••••" : fmtMoney(summary.totalLiabilities)}
                   </span>
                 </div>
                 <button
