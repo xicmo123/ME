@@ -85,52 +85,15 @@ const FontStyles = () => (
   `}</style>
 );
 
-// 電子雞風格：蛋 -> 裂痕 -> 破殼小雞，依 progress (0~100) 呈現不同階段
-const EggChick = ({ progress, size = 44 }: { progress: number; size?: number }) => {
+// 目標進度環：素圈＋描邊進度，不用插畫，維持跟其餘畫面一致的低調感
+const GoalRing = ({ progress, size = 30, color }: { progress: number; size?: number; color: string }) => {
   const p = Math.max(0, Math.min(100, progress || 0));
-  const stage = p >= 100 ? 4 : p >= 75 ? 3 : p >= 50 ? 2 : p >= 25 ? 1 : 0;
-  const eggFill = p >= 100 ? "#FFE9B8" : `hsl(${38 + p * 0.1}, 70%, ${92 - p * 0.12}%)`;
-  const cracks = [
-    "M50 18 L45 30 L54 38 L47 50",
-    "M30 30 L38 40 L32 50 L40 62",
-    "M62 28 L58 42 L66 50 L60 64",
-  ];
+  const r = 13;
+  const c = 2 * Math.PI * r;
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" className="shrink-0" style={{ filter: "drop-shadow(0 2px 1px rgba(0,0,0,0.12))" }}>
-      {stage < 4 ? (
-        <g>
-          <path
-            d={`M50 8 C ${72 + stage} 8 88 34 88 58 C 88 82 70 94 50 94 C 30 94 12 82 12 58 C 12 34 ${28 - stage} 8 50 8 Z`}
-            fill={eggFill}
-            stroke="#5B4B49"
-            strokeWidth="3"
-          />
-          <ellipse cx="36" cy="32" rx="8" ry="12" fill="#FFFFFF" opacity="0.55" />
-          {cracks.slice(0, stage).map((d, i) => (
-            <path key={i} d={d} fill="none" stroke="#5B4B49" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          ))}
-          {stage >= 3 && (
-            <>
-              <path d="M42 14 Q50 6 58 14 Q54 20 50 18 Q46 20 42 14 Z" fill="#FFF3D6" stroke="#5B4B49" strokeWidth="2" />
-              <path d="M47 14 L50 10 L53 14 Z" fill="#F4A94F" />
-            </>
-          )}
-        </g>
-      ) : (
-        <g>
-          <path d="M14 66 Q10 84 32 88 Q26 74 34 62 Z" fill="#FFF3D6" stroke="#5B4B49" strokeWidth="2.5" />
-          <path d="M86 66 Q90 84 68 88 Q74 74 66 62 Z" fill="#FFF3D6" stroke="#5B4B49" strokeWidth="2.5" />
-          <circle cx="50" cy="52" r="30" fill="#FFE066" stroke="#5B4B49" strokeWidth="3" />
-          <path d="M24 52 Q14 56 20 68 Q30 66 30 56 Z" fill="#FFD23F" stroke="#5B4B49" strokeWidth="2" />
-          <path d="M76 52 Q86 56 80 68 Q70 66 70 56 Z" fill="#FFD23F" stroke="#5B4B49" strokeWidth="2" />
-          <path d="M46 24 Q48 14 52 24" fill="none" stroke="#5B4B49" strokeWidth="2.5" strokeLinecap="round" />
-          <path d="M38 48 Q42 44 46 48" fill="none" stroke="#5B4B49" strokeWidth="2.5" strokeLinecap="round" />
-          <path d="M54 48 Q58 44 62 48" fill="none" stroke="#5B4B49" strokeWidth="2.5" strokeLinecap="round" />
-          <circle cx="34" cy="56" r="4" fill="#FF9FB0" opacity="0.7" />
-          <circle cx="66" cy="56" r="4" fill="#FF9FB0" opacity="0.7" />
-          <path d="M44 58 L50 64 L56 58 Z" fill="#F4A94F" stroke="#5B4B49" strokeWidth="1.5" strokeLinejoin="round" />
-        </g>
-      )}
+    <svg width={size} height={size} viewBox="0 0 32 32" className="shrink-0 -rotate-90">
+      <circle cx="16" cy="16" r={r} fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2.5" />
+      <circle cx="16" cy="16" r={r} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - p / 100)} />
     </svg>
   );
 };
@@ -1564,11 +1527,8 @@ export default function HomePage() {
                 {goals.map((goal: any) => (
                   <div key={goal.id} className="relative px-4 py-3.5 flex items-center gap-3">
                     {lockedGoalIds.has(goal.id) && <LockedOverlay onClick={() => setActiveTab("settings")} />}
-                    <div className="shrink-0 flex flex-col items-center gap-0.5">
-                      <EggChick progress={goal.progress} size={30} />
-                      <span className="text-[8px] font-bold" style={{ color: goal.progress >= 100 ? "#4F7B5E" : gold }}>
-                        {goal.progress >= 100 ? "孵化！" : goal.progress >= 75 ? "快出殼" : goal.progress >= 50 ? "裂開了" : goal.progress >= 25 ? "有裂痕" : "孵蛋中"}
-                      </span>
+                    <div className="shrink-0 flex items-center justify-center">
+                      <GoalRing progress={goal.progress} size={30} color={goal.progress >= 100 ? "#4F7B5E" : gold} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
