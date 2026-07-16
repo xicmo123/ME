@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X, Archive, FileText, Shield } from "lucide-react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield } from "lucide-react";
 import { isNative, startOAuth } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -139,10 +139,9 @@ export function SettingsTab({
         className="w-full text-left relative overflow-hidden rounded-[24px] p-5 transition-transform active:scale-[0.99] cursor-pointer"
         style={{ background: hero.background, color: hero.text, boxShadow: `${hero.shadow}, ${hero.ring}` }}
       >
-        <Crown className="absolute -right-3 -bottom-3 h-24 w-24 opacity-[0.12]" style={{ color: hero.text }} />
         <div className="relative flex items-center gap-2 mb-2">
           <span className="font-display text-base font-bold tracking-tight">Zeno</span>
-          <span className="font-mono-ledger text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
+          <span className="font-mono-ledger text-[10px] font-bold tracking-[0.2em] uppercase opacity-70">Pro</span>
         </div>
         <p className="relative text-[15px] font-bold leading-snug max-w-[85%]">
           {isPro ? "你已解鎖 Zeno Pro，感謝支持！" : "升級成 Zeno Pro 版"}
@@ -162,9 +161,9 @@ export function SettingsTab({
         <button onClick={toggleDarkMode} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
           <div className="flex items-center gap-3">
             {isDarkMode ? <Moon className="h-4 w-4" style={{ color: gold }} /> : <Sun className="h-4 w-4" style={{ color: gold }} />}
-            <span className="text-sm font-medium">{isDarkMode ? "深色模式" : "淺色模式"}</span>
+            <span className="text-sm font-medium">深色模式</span>
           </div>
-          <Switch on={!isDarkMode} />
+          <Switch on={isDarkMode} />
         </button>
       </div>
       <div className={`${surface} rounded-2xl overflow-hidden`}>
@@ -398,7 +397,6 @@ export function SettingsTab({
           <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[85vh] overflow-y-auto`}>
             <div className="flex items-center justify-between p-5 border-b border-black/[0.06] dark:border-white/[0.06] sticky top-0 bg-inherit">
               <div className="flex items-center gap-2">
-                <Crown className="h-4 w-4" style={{ color: gold }} />
                 <h3 className="font-display text-base font-semibold">方案內容</h3>
               </div>
               <button onClick={() => setShowPlanDetails(false)} className={`p-1.5 ${textMuted} hover:text-[#1C1F1A] dark:hover:text-white`}>
@@ -411,10 +409,9 @@ export function SettingsTab({
                 className="relative overflow-hidden rounded-[20px] p-4"
                 style={{ background: hero.background, color: hero.text, boxShadow: `${hero.shadow}, ${hero.ring}` }}
               >
-                <Crown className="absolute -right-3 -bottom-3 h-20 w-20 opacity-[0.12]" style={{ color: hero.text }} />
                 <div className="relative flex items-center gap-2 mb-1.5">
                   <span className="font-display text-sm font-bold tracking-tight">Zeno</span>
-                  <span className="font-mono-ledger text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
+                  <span className="font-mono-ledger text-[10px] font-bold tracking-[0.2em] uppercase opacity-70">Pro</span>
                 </div>
                 <p className="relative text-sm font-bold">{isPro ? "你已經是 Zeno Pro 版" : "升級成 Zeno Pro 版"}</p>
                 <p className="relative text-xs opacity-75 mt-0.5">{isPro ? "感謝支持，所有進階功能已解鎖" : "無限帳戶、無限目標，完整掌控你的資產"}</p>

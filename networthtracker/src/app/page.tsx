@@ -81,6 +81,7 @@ const FontStyles = () => (
     }
     html { -webkit-tap-highlight-color: transparent; }
     * { -webkit-font-smoothing: antialiased; }
+    svg.lucide { stroke-width: 1.5; }
 
   `}</style>
 );
@@ -1546,7 +1547,7 @@ export default function HomePage() {
                         <span className="whitespace-nowrap">{hideBalance ? "••••" : `NT$ ${Math.round(Number(goal.currentAmount)).toLocaleString()}`}</span>
                         {goal.progress < 100
                           ? <span className="whitespace-nowrap ml-auto">目標 NT$ {Number(goal.targetAmount).toLocaleString()}</span>
-                          : <span className="text-[#4F7B5E] dark:text-[#7FAE8F]">🎉 已達標！</span>
+                          : <span className="text-[#4F7B5E] dark:text-[#7FAE8F]">已達標</span>
                         }
                       </div>
                     </div>
@@ -1985,7 +1986,7 @@ export default function HomePage() {
                   <p className={cardTitle}>每月增減</p>
                   {growthStreak >= 2 && (
                     <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-[#4F7B5E]/12 text-[#4F7B5E] dark:text-[#7FAE8F]">
-                      🔥 連續 {growthStreak} 個月正成長
+                      連續 {growthStreak} 個月正成長
                     </span>
                   )}
                 </div>
