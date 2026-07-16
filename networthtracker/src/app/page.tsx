@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
 import CountUp from "react-countup";
 import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock } from "lucide-react";
@@ -24,16 +24,16 @@ const categoryOptions = [
   { value: "CREDIT_LOAN", label: "信用貸款" },
 ];
 const currencyOptions = [
-  { value: "TWD", label: "TWD" },
-  { value: "USD", label: "USD" },
-  { value: "JPY", label: "JPY" },
-  { value: "EUR", label: "EUR" },
-  { value: "GBP", label: "GBP" },
-  { value: "HKD", label: "HKD" },
-  { value: "CNY", label: "CNY" },
-  { value: "AUD", label: "AUD" },
-  { value: "CAD", label: "CAD" },
-  { value: "SGD", label: "SGD" },
+  { value: "TWD", label: "🇹🇼 TWD" },
+  { value: "USD", label: "🇺🇸 USD" },
+  { value: "JPY", label: "🇯🇵 JPY" },
+  { value: "EUR", label: "🇪🇺 EUR" },
+  { value: "GBP", label: "🇬🇧 GBP" },
+  { value: "HKD", label: "🇭🇰 HKD" },
+  { value: "CNY", label: "🇨🇳 CNY" },
+  { value: "AUD", label: "🇦🇺 AUD" },
+  { value: "CAD", label: "🇨🇦 CAD" },
+  { value: "SGD", label: "🇸🇬 SGD" },
 ];
 const categoryLabelMap: Record<string, string> = categoryOptions.reduce((acc, curr) => ({ ...acc, [curr.value]: curr.label }), {});
 const symbolRequiredCategories = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
@@ -193,6 +193,10 @@ export default function HomePage() {
   const [toasts, setToasts] = useState<{ id: number; message: string; kind: "success" | "error" }[]>([]);
   const [itemDeleteTarget, setItemDeleteTarget] = useState<{ kind: "account" | "goal"; id: string; name: string } | null>(null);
   const [itemDeleting, setItemDeleting] = useState(false);
+  // 降級提醒：Pro 掉回 Free 那次 session 跳出，列出哪些資產/負債/目標被鎖定，讓使用者選擇升級解鎖或直接刪除
+  const [downgradeAlert, setDowngradeAlert] = useState<{ accounts: { id: string; name: string; type: string }[]; goals: { id: string; name: string }[] } | null>(null);
+  const [downgradeBulkDeleting, setDowngradeBulkDeleting] = useState(false);
+  const [justDowngraded, setJustDowngraded] = useState(false);
   const [accountShelfProgress, setAccountShelfProgress] = useState<Record<string, number>>({});
   const [collapsedAccountGroups, setCollapsedAccountGroups] = useState<Record<string, boolean>>({});
   const [detailGroupTitle, setDetailGroupTitle] = useState<string | null>(null);
@@ -291,6 +295,19 @@ export default function HomePage() {
     const pct = (delta / Math.abs(Number(endOfBefore.netWorth))) * 100;
     return { month: startOfPrevMonth.getMonth() + 1, delta, pct };
   }, [history]);
+
+  // 今日淨資產 vs 昨日 23:59 的快照（每日快照以台北時間記錄，跟後端 /api/history/snapshot 對齊）
+  const dailyChange = useMemo(() => {
+    if (history.length === 0) return null;
+    const twDateFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" });
+    const yesterdayStr = twDateFmt.format(new Date(Date.now() - 86400000));
+    const point = history.find((h: any) => twDateFmt.format(new Date(h.date)) === yesterdayStr);
+    if (!point || !Number(point.netWorth)) return null;
+    const base = Number(point.netWorth);
+    const delta = summary.netWorth - base;
+    const pct = (delta / Math.abs(base)) * 100;
+    return { delta, pct };
+  }, [history, summary.netWorth]);
 
   // 近半年平均月增額（給目標達成預測用）
   const monthlyGrowth = useMemo(() => {
@@ -412,6 +429,11 @@ export default function HomePage() {
         const data = await res.json();
         setIsAuthenticated(true);
         setCurrentUser(data.user);
+        // 沒有 webhook 通知降級，只能靠比對「上次看到的方案」跟這次抓到的方案來偵測 Pro→Free
+        const nowIsPro = Boolean(data.user?.entitlements?.isPro);
+        const prevTier = localStorage.getItem("zeno-last-tier");
+        localStorage.setItem("zeno-last-tier", nowIsPro ? "PRO" : "FREE");
+        if (prevTier === "PRO" && !nowIsPro) setJustDowngraded(true);
         // 只有在確認已登入後才觸發 bio lock，避免 session 過期時擋住登入畫面
         if (savedBio && isNative()) {
           setBioLocked(true);
@@ -854,7 +876,7 @@ export default function HomePage() {
     const delta = last.netWorth - first.netWorth;
     const pct = first.netWorth ? (delta / Math.abs(first.netWorth)) * 100 : null;
     const days = Math.max(1, (new Date(last.date).getTime() - new Date(first.date).getTime()) / 86400000);
-    return { delta, pct, high, low, dailyAvg: delta / days };
+    return { delta, pct, high, low, dailyAvg: delta / days, days: Math.round(days), first, last };
   }, [chartData]);
 
   // 資產 vs 負債分解：沿用 chartData 的時間軸，把歷史快照的總資產/總負債前向填充上去
@@ -1137,6 +1159,37 @@ export default function HomePage() {
     return new Set(goals.slice(max).map((g: any) => g.id));
   }, [goals, currentUser]);
 
+  // 偵測到「這次 session 剛從 Pro 掉回 Free」後，等資產／目標都抓回來才有完整的鎖定清單可以列出來跳窗
+  const downgradeAlertShownRef = useRef(false);
+  useEffect(() => {
+    if (!justDowngraded || downgradeAlertShownRef.current) return;
+    if (accounts.length === 0 && goals.length === 0) return;
+    downgradeAlertShownRef.current = true;
+    const lockedAccounts = accounts.filter((a: any) => a.isLocked).map((a: any) => ({ id: a.id, name: a.name, type: a.type }));
+    const lockedGoals = goals.filter((g: any) => lockedGoalIds.has(g.id)).map((g: any) => ({ id: g.id, name: g.name }));
+    if (lockedAccounts.length > 0 || lockedGoals.length > 0) {
+      setDowngradeAlert({ accounts: lockedAccounts, goals: lockedGoals });
+    }
+  }, [justDowngraded, accounts, goals, lockedGoalIds]);
+
+  async function confirmDowngradeBulkDelete() {
+    if (!downgradeAlert) return;
+    setDowngradeBulkDeleting(true);
+    try {
+      await Promise.allSettled([
+        ...downgradeAlert.accounts.map((a) => fetch(`/api/accounts/${a.id}`, { method: "DELETE" })),
+        ...downgradeAlert.goals.map((g) => fetch(`/api/goals?id=${g.id}`, { method: "DELETE" })),
+      ]);
+      await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchGoals()]);
+      showToast("已刪除鎖定的資料");
+      setDowngradeAlert(null);
+    } catch {
+      showToast("刪除失敗，請再試一次", "error");
+    } finally {
+      setDowngradeBulkDeleting(false);
+    }
+  }
+
   const bg = "bg-[#EEF0EC] dark:bg-[#0B0D12]";
   // 卡片改走 fintech 扁平風：白底＋柔和陰影，不再用漸層描邊（圓角由各處自帶的 rounded-* 決定）
   const surface = "bg-white dark:bg-[#151923] shadow-[0_10px_30px_-14px_rgba(28,31,26,0.16)] dark:shadow-[0_10px_30px_-14px_rgba(0,0,0,0.55)]";
@@ -1299,18 +1352,30 @@ export default function HomePage() {
                   </button>
                 </div>
               </div>
-              <p className="font-mono-ledger text-[clamp(1.5rem,7.5vw,2.25rem)] font-bold leading-normal mt-1 truncate">
-                {hideBalance ? (
-                  `${displayCurrency === "USD" ? "US$" : "NT$"} ••••••`
-                ) : (
-                  <CountUp
-                    end={displayCurrency === "USD" && exchangeRate ? Math.round(summary.netWorth / exchangeRate) : summary.netWorth}
-                    duration={0.8}
-                    preserveValue
-                    formattingFn={(v) => `${displayCurrency === "USD" && exchangeRate ? "US$" : "NT$"} ${formatCurrency(v)}`}
-                  />
+              <div className="flex items-baseline gap-2 mt-1 min-w-0">
+                <p className="font-mono-ledger text-[clamp(1.5rem,7.5vw,2.25rem)] font-bold leading-normal truncate">
+                  {hideBalance ? (
+                    `${displayCurrency === "USD" ? "US$" : "NT$"} ••••••`
+                  ) : (
+                    <CountUp
+                      end={displayCurrency === "USD" && exchangeRate ? Math.round(summary.netWorth / exchangeRate) : summary.netWorth}
+                      duration={0.8}
+                      preserveValue
+                      formattingFn={(v) => `${displayCurrency === "USD" && exchangeRate ? "US$" : "NT$"} ${formatCurrency(v)}`}
+                    />
+                  )}
+                </p>
+                {/* 對比昨日 23:59 快照的當日漲跌幅，跟卡片上方那顆「本月比較」的 % 不同區間，故分開顯示 */}
+                {dailyChange && !hideBalance && (
+                  <span
+                    className="font-mono-ledger text-[11px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                    style={{ background: HERO_THEMES[heroTheme].chipBtnBg }}
+                    title="對比昨日 23:59 淨資產快照"
+                  >
+                    {dailyChange.pct >= 0 ? "+" : "−"}{Math.abs(dailyChange.pct).toFixed(1)}%
+                  </span>
                 )}
-              </p>
+              </div>
               <div className="mt-3 flex flex-col gap-2 font-mono-ledger text-[11px] font-bold sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="min-w-0 max-w-full break-words rounded-full border px-2.5 py-1" style={{ borderColor: `${HERO_THEMES[heroTheme].assetBorder}59`, background: `${HERO_THEMES[heroTheme].assetBorder}1A`, color: HERO_THEMES[heroTheme].assetBorder }}>
@@ -1670,33 +1735,37 @@ export default function HomePage() {
               <button onClick={() => setShowHistoryForm(true)} className="text-xs font-semibold hover:underline underline-offset-2" style={{ color: gold }}>+ 手動補登</button>
             </div>
             {periodStats && (
-              <div className={`${surface} rounded-2xl p-4`}>
-                <div className="flex items-center justify-between mb-3">
+              <div className={`${surface} rounded-2xl p-3`}>
+                <div className="flex items-center justify-between mb-0.5">
                   <p className={sectionLabel}>本期摘要</p>
-                  <span className={`text-[11px] ${textMuted}`}>{timeframeLabel}</span>
+                  <span className={`text-[10px] ${textMuted}`}>{timeframeLabel}</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                {/* 明確標出「本期」指的是哪個區間，避免跟「本期變化/日均變化」的定義兜不起來 */}
+                <p className={`text-[10px] mb-2 ${textMuted}`}>
+                  區間：{periodStats.first.label || periodStats.first.date} → {periodStats.last.label || periodStats.last.date}（共 {periodStats.days} 天）
+                </p>
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <p className={`text-[10px] ${textMuted}`}>本期變化</p>
-                    <p className="font-mono-ledger text-base font-bold mt-0.5" style={{ color: periodStats.delta >= 0 ? "#4F7B5E" : "#A24936" }}>
+                    <p className={`text-[10px] ${textMuted}`}>本期變化<span className="opacity-70">（區間末－區間初）</span></p>
+                    <p className="font-mono-ledger text-sm font-bold mt-0.5" style={{ color: periodStats.delta >= 0 ? "#4F7B5E" : "#A24936" }}>
                       {hideBalance ? "••••" : `${periodStats.delta >= 0 ? "+" : "−"}${formatCompactNumber(Math.abs(periodStats.delta))}`}
-                      {periodStats.pct !== null && <span className="ml-1.5 text-[11px]">{periodStats.pct >= 0 ? "+" : "−"}{Math.abs(periodStats.pct).toFixed(1)}%</span>}
+                      {periodStats.pct !== null && <span className="ml-1.5 text-[10px]">{periodStats.pct >= 0 ? "+" : "−"}{Math.abs(periodStats.pct).toFixed(1)}%</span>}
                     </p>
                   </div>
                   <div>
-                    <p className={`text-[10px] ${textMuted}`}>日均變化</p>
-                    <p className="font-mono-ledger text-base font-bold mt-0.5" style={{ color: periodStats.dailyAvg >= 0 ? "#4F7B5E" : "#A24936" }}>
+                    <p className={`text-[10px] ${textMuted}`}>日均變化<span className="opacity-70">（本期變化 ÷ 天數）</span></p>
+                    <p className="font-mono-ledger text-sm font-bold mt-0.5" style={{ color: periodStats.dailyAvg >= 0 ? "#4F7B5E" : "#A24936" }}>
                       {hideBalance ? "••••" : `${periodStats.dailyAvg >= 0 ? "+" : "−"}${formatCompactNumber(Math.round(Math.abs(periodStats.dailyAvg)))}`}
                     </p>
                   </div>
                   <div>
                     <p className={`text-[10px] ${textMuted}`}>期間最高</p>
-                    <p className="font-mono-ledger text-sm font-bold mt-0.5">{hideBalance ? "••••" : formatCompactNumber(periodStats.high.netWorth)}</p>
+                    <p className="font-mono-ledger text-xs font-bold mt-0.5">{hideBalance ? "••••" : formatCompactNumber(periodStats.high.netWorth)}</p>
                     <p className={`text-[10px] ${textMuted}`}>{periodStats.high.label || periodStats.high.date}</p>
                   </div>
                   <div>
                     <p className={`text-[10px] ${textMuted}`}>期間最低</p>
-                    <p className="font-mono-ledger text-sm font-bold mt-0.5">{hideBalance ? "••••" : formatCompactNumber(periodStats.low.netWorth)}</p>
+                    <p className="font-mono-ledger text-xs font-bold mt-0.5">{hideBalance ? "••••" : formatCompactNumber(periodStats.low.netWorth)}</p>
                     <p className={`text-[10px] ${textMuted}`}>{periodStats.low.label || periodStats.low.date}</p>
                   </div>
                 </div>
@@ -2197,14 +2266,23 @@ export default function HomePage() {
               <div className="p-5 space-y-2 overflow-y-auto">
                 {group.cards.map((card: any) => {
                   const pct = groupTotal > 0 ? (Number(card.currentValue ?? 0) / groupTotal) * 100 : 0;
+                  const isStock = symbolRequiredCategories.includes(card.category);
                   return (
                     <div key={card.id} className="flex items-center gap-3 py-2 border-b border-black/[0.05] dark:border-white/[0.05] last:border-0">
                       <span className="h-2 w-2 rounded-full shrink-0" style={{ background: group.color }} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate">{card.title.replace(/\.TW$/i, "")}</p>
-                        <p className={`text-[10px] ${textMuted}`}>{categoryLabelMap[card.category]}{pct > 0 && ` · 佔比 ${pct.toFixed(1)}%`}</p>
+                        <p className={`text-[10px] ${textMuted}`}>
+                          {categoryLabelMap[card.category]}{pct > 0 && ` · 佔比 ${pct.toFixed(1)}%`}
+                          {isStock && card.currentPrice > 0 && <span className="ml-1 font-semibold" style={{ color: gold }}>· 現價 {formatCurrency(card.currentPrice)}</span>}
+                        </p>
                       </div>
                       <span className={`font-mono-ledger text-sm font-bold shrink-0 ${group.title === "負債總額" ? "text-[#A24936]" : ""}`}>{hideBalance ? "••••" : `NT$ ${formatCurrency(card.currentValue)}`}</span>
+                      <div className="flex items-center shrink-0">
+                        {/* 編輯表單的 modal 在 DOM 順序上比這個「查看全部」modal 早，同層級 z-50 疊圖時會被蓋住，所以點編輯要先關掉這層 */}
+                        <button onClick={() => { setDetailGroupTitle(null); startEdit(card.account); }} aria-label="編輯資產" className={`p-1.5 -m-0.5 ${textMuted} hover:text-[#B8933C] active:scale-90 transition-transform`}><Pencil className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => handleDelete(card.account.id, card.account.name)} aria-label="刪除資產" className={`p-1.5 -m-0.5 ${textMuted} hover:text-[#A24936] active:scale-90 transition-transform`}><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>
                     </div>
                   );
                 })}
@@ -2410,6 +2488,61 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* 降級提醒：從 Pro 掉回 Free 後，列出被鎖定的資產/負債/目標，讓使用者選擇升級解鎖或直接刪除 */}
+      {downgradeAlert && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className={`w-full sm:max-w-md max-h-[85vh] overflow-y-auto ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl p-6`}>
+            <div className="flex items-start gap-4 mb-4">
+              <div className="p-2 bg-[#B8933C]/10 rounded-xl shrink-0">
+                <Lock className="h-6 w-6" style={{ color: "#B8933C" }} />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold" style={{ color: "#B8933C" }}>方案已降級為免費版</h3>
+                <p className={`text-sm ${textMuted} mt-1 leading-relaxed`}>
+                  以下 {downgradeAlert.accounts.length + downgradeAlert.goals.length} 筆資料超過免費方案上限，已被鎖定、不計入淨資產。升級 Pro 可立即解鎖，或直接刪除以整理帳目。
+                </p>
+              </div>
+            </div>
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-black/10 dark:border-white/10 divide-y divide-black/5 dark:divide-white/5 mb-5">
+              {downgradeAlert.accounts.map((a) => (
+                <div key={a.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <span className={textPrimary}>{a.name}</span>
+                  <span className={`text-xs ${textMuted}`}>{a.type === "LIABILITY" ? "負債" : "資產"}</span>
+                </div>
+              ))}
+              {downgradeAlert.goals.map((g) => (
+                <div key={g.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <span className={textPrimary}>{g.name}</span>
+                  <span className={`text-xs ${textMuted}`}>目標</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2.5">
+              <button
+                onClick={() => { setDowngradeAlert(null); setActiveTab("settings"); }}
+                className="w-full py-3 text-sm font-semibold text-white rounded-lg hover:opacity-90 active:scale-[0.97] transition-transform cursor-pointer"
+                style={{ backgroundColor: "#B8933C" }}
+              >
+                升級 Pro 解鎖
+              </button>
+              <button
+                onClick={confirmDowngradeBulkDelete}
+                disabled={downgradeBulkDeleting}
+                className="w-full py-3 text-sm font-semibold text-[#A24936] border border-[#A24936]/30 rounded-lg hover:bg-[#A24936]/5 active:scale-[0.97] transition-transform cursor-pointer"
+              >
+                {downgradeBulkDeleting ? "刪除中…" : "刪除鎖定的資料"}
+              </button>
+              <button
+                onClick={() => setDowngradeAlert(null)}
+                disabled={downgradeBulkDeleting}
+                className={`w-full py-2.5 text-sm font-medium ${textMuted} cursor-pointer`}
+              >
+                稍後再說
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast 提示 */}
       <div className="fixed left-1/2 -translate-x-1/2 z-[60] flex flex-col gap-2 items-center w-full px-4 pointer-events-none" style={{ top: "max(1rem, calc(env(safe-area-inset-top) + 0.5rem))" }}>
