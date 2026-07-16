@@ -84,7 +84,7 @@ export async function scheduleDailyReminder(hour: number, minute: number, enable
     await LocalNotifications.schedule({
       notifications: [{
         id: DAILY_REMINDER_NOTIFICATION_ID,
-        title: "Zeno Worth",
+        title: "Zeno",
         body: "記帳囉！今天花了多少、賺了多少，隨手記一下。",
         schedule: { on: { hour, minute }, repeats: true, allowWhileIdle: true },
       }],
@@ -112,7 +112,7 @@ export async function syncEventReminders(events: { id: number; title: string; at
     await LocalNotifications.schedule({
       notifications: upcoming.map((ev) => ({
         id: ev.id,
-        title: "Zeno Worth",
+        title: "Zeno",
         body: ev.title,
         schedule: { at: ev.at },
       })),

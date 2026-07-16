@@ -372,7 +372,7 @@ export function SettingsTab({
           <span className="text-sm font-medium text-[#A24936]">刪除帳號與所有資料</span>
         </button>
       </div>
-      <p className={`text-center text-xs ${textMuted} pb-2`}>Zeno Worth · 版本 1.0</p>
+      <p className={`text-center text-xs ${textMuted} pb-2`}>Zeno · 版本 1.0</p>
 
       {showPlanDetails && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">

@@ -226,7 +226,7 @@ export default function HomePage() {
   const isCryptoApiMode = formData.category === "CRYPTO" && formData.isApiConnected;
   const requiresSymbol = symbolRequiredCategories.includes(formData.category) && !isCryptoApiMode;
   const usesAmountInput = amountInputCategories.includes(formData.category);
-  const amountFieldLabel = usesAmountInput ? (formData.type === "LIABILITY" ? "貸款總金額" : "總金額") : "持有股數";
+  const amountFieldLabel = usesAmountInput ? (formData.type === "LIABILITY" ? "貸款總金額" : "總金額") : "持有數量/股數";
   const showApiFields = formData.category === "CRYPTO" && formData.isApiConnected;
   const stockSearchMarket = formData.category === "TAIWAN_STOCK" ? "TW" : formData.category === "US_STOCK" ? "US" : formData.category === "CRYPTO" && !isCryptoApiMode ? "CRYPTO" : null;
 
@@ -460,7 +460,7 @@ export default function HomePage() {
         // 只有在確認已登入後才觸發 bio lock，避免 session 過期時擋住登入畫面
         if (savedBio && isNative()) {
           setBioLocked(true);
-          void biometricVerify("解鎖 Zeno Worth").then((ok) => { if (ok) setBioLocked(false); });
+          void biometricVerify("解鎖 Zeno").then((ok) => { if (ok) setBioLocked(false); });
         }
       }
     }).catch(() => { });
@@ -1299,10 +1299,10 @@ export default function HomePage() {
     return (
       <main className={`min-h-screen flex flex-col items-center justify-center gap-8 p-4 ${bg} ${textPrimary}`} style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
         <FontStyles />
-        <img src="/logo.png" alt="Zeno Worth" className="h-24 w-auto object-contain dark:invert dark:brightness-125" />
+        <img src="/logo.png" alt="Zeno" className="h-24 w-auto object-contain dark:invert dark:brightness-125" />
         <p className={`text-[11px] font-semibold tracking-[0.25em] ${textMuted}`}>LOCKED · 已鎖定</p>
         <button
-          onClick={() => { void biometricVerify("解鎖 Zeno Worth").then((ok) => { if (ok) setBioLocked(false); }); }}
+          onClick={() => { void biometricVerify("解鎖 Zeno").then((ok) => { if (ok) setBioLocked(false); }); }}
           className="flex items-center gap-2.5 px-6 py-3.5 text-sm font-semibold rounded-xl text-black active:scale-95 transition-transform"
           style={{ background: gold }}
         >
@@ -1317,7 +1317,7 @@ export default function HomePage() {
       <main className={`min-h-screen flex items-center justify-center p-4 ${bg} ${textPrimary}`} style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
         <FontStyles />
         <div className={`w-full max-w-sm p-6 ${surface} rounded-[24px] flex flex-col items-center`}>
-          <img src="/logo.png" alt="Zeno Worth" className="h-20 w-auto mb-3 object-contain dark:invert dark:brightness-125" />
+          <img src="/logo.png" alt="Zeno" className="h-20 w-auto mb-3 object-contain dark:invert dark:brightness-125" />
           <p className={`text-[11px] font-semibold tracking-[0.25em] mb-5 ${textMuted}`}>
             {authMode === "login" ? "SIGN IN · 登入帳號" : "REGISTER · 建立帳號"}
           </p>

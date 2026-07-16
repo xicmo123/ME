@@ -7,7 +7,7 @@ const DEV_SERVER_URL = 'https://zeno.zequo.net';
 
 const config: CapacitorConfig = {
   appId: 'com.zenoworth.app',
-  appName: 'Zeno Worth',
+  appName: 'Zeno',
   webDir: 'public',
   server: {
     url: DEV_SERVER_URL,

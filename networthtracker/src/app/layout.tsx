@@ -26,8 +26,8 @@ const dotGothic16 = DotGothic16({
 });
 
 export const metadata: Metadata = {
-  title: "Zeno Worth",
-  description: "Zeno Worth · 個人淨資產追蹤",
+  title: "Zeno",
+  description: "Zeno · 個人淨資產追蹤",
   icons: {
     icon: "/logo.png",
     apple: "/logo.png",
