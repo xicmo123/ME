@@ -10,7 +10,7 @@ import { HERO_THEMES } from "@/lib/hero-theme";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleIcon, AppleIcon, CurrencyFlag } from "@/components/icons";
 import { SettingsTab } from "@/components/tabs/SettingsTab";
-import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder } from "@/lib/native";
+import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder, startOAuth, initDeepLinkListener } from "@/lib/native";
 
 const LEGACY_DARK_MODE_KEY = "networth-dark-mode";
 
@@ -414,6 +414,7 @@ export default function HomePage() {
 
   useEffect(() => {
     setMounted(true);
+    initDeepLinkListener();
 
     // 舊版把深色模式存在 networth-dark-mode（"true"/"false"），改用 next-themes 後
     // 交由它自己的 storageKey 管理；這裡做一次性搬遷，讓舊使用者的偏好不會被重置成 system。
@@ -1347,15 +1348,15 @@ export default function HomePage() {
             <div className="flex-1 h-px bg-black/10 dark:bg-white/10" />
           </div>
 
-          <a href="/api/auth/google" className={`w-full py-3 flex items-center justify-center gap-2.5 text-sm font-semibold rounded-lg border border-black/15 dark:border-white/15 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${textPrimary}`}>
+          <button type="button" onClick={() => startOAuth("google")} className={`w-full py-3 flex items-center justify-center gap-2.5 text-sm font-semibold rounded-lg border border-black/15 dark:border-white/15 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${textPrimary}`}>
             <GoogleIcon className="h-4 w-4" />
             使用 Google {authMode === "login" ? "登入" : "註冊"}
-          </a>
+          </button>
 
-          <a href="/api/auth/apple" className={`mt-2.5 w-full py-3 flex items-center justify-center gap-2.5 text-sm font-semibold rounded-lg border border-black/15 dark:border-white/15 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${textPrimary}`}>
+          <button type="button" onClick={() => startOAuth("apple")} className={`mt-2.5 w-full py-3 flex items-center justify-center gap-2.5 text-sm font-semibold rounded-lg border border-black/15 dark:border-white/15 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${textPrimary}`}>
             <AppleIcon className="h-4 w-4" />
             使用 Apple {authMode === "login" ? "登入" : "註冊"}
-          </a>
+          </button>
 
           <button onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }} className={`mt-5 text-xs ${textMuted} hover:text-[#B8933C] transition-colors`}>
             {authMode === "login" ? "還沒有帳號？ 立即註冊" : "已有帳號？ 返回登入"}

@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { buildGoogleAuthUrl } from "@/lib/googleAuth";
 import { getUserIdFromRequest } from "@/lib/auth";
+import { isNativeOAuthRequest, setOAuthPlatformCookie } from "@/lib/oauthNative";
 
 import { prisma } from "@/lib/prisma";
 
 // GET /api/auth/google → 導向 Google 登入頁。若使用者當下已登入（帶著 auth-token），
 // callback 會偵測到並改走「綁定」流程，這裡不需要另外傳參數區分。
+// ?platform=native → iOS App 用 in-app 瀏覽器發起的請求，callback 結束後要導回 App 而不是網頁版的 `/`。
 export async function GET(request: NextRequest) {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return NextResponse.json({ message: "尚未設定 Google OAuth 憑證" }, { status: 500 });
@@ -15,6 +17,7 @@ export async function GET(request: NextRequest) {
   const state = crypto.randomBytes(16).toString("hex");
   const response = NextResponse.redirect(buildGoogleAuthUrl(state, request));
   response.cookies.set("google-oauth-state", state, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 600, path: "/" });
+  setOAuthPlatformCookie(response, isNativeOAuthRequest(request));
   return response;
 }
 

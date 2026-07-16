@@ -3,14 +3,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { exchangeAppleCode, verifyAppleIdToken } from "@/lib/appleAuth";
 import { createToken, getUserIdFromRequest } from "@/lib/auth";
 import { getAppOrigin } from "@/lib/requestOrigin";
+import { buildNativeCallbackUrl, clearOAuthPlatformCookie, isNativeOAuthCallback } from "@/lib/oauthNative";
 
 import { prisma } from "@/lib/prisma";
 
 function redirectWithError(request: NextRequest, message: string) {
-  const url = new URL("/", getAppOrigin(request));
-  url.searchParams.set("authError", message);
+  const isNative = isNativeOAuthCallback(request);
+  const url = isNative ? buildNativeCallbackUrl({ authError: message }) : (() => {
+    const u = new URL("/", getAppOrigin(request));
+    u.searchParams.set("authError", message);
+    return u.toString();
+  })();
   const response = NextResponse.redirect(url, { status: 303 });
   response.cookies.set("apple-oauth-state", "", { maxAge: 0, path: "/" });
+  clearOAuthPlatformCookie(response);
   return response;
 }
 
@@ -38,6 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     const currentUserId = getUserIdFromRequest(request);
+    const isNative = isNativeOAuthCallback(request);
 
     if (currentUserId) {
       // 綁定流程：使用者已登入，把 Apple 帳號綁到目前這個帳號
@@ -46,8 +53,10 @@ export async function POST(request: NextRequest) {
         return redirectWithError(request, "此 Apple 帳號已綁定其他帳號");
       }
       await prisma.user.update({ where: { id: currentUserId }, data: { appleId: claims.sub } });
-      const response = NextResponse.redirect(new URL("/?linked=apple", getAppOrigin(request)), { status: 303 });
+      const url = isNative ? buildNativeCallbackUrl({ linked: "apple" }) : new URL("/?linked=apple", getAppOrigin(request)).toString();
+      const response = NextResponse.redirect(url, { status: 303 });
       response.cookies.set("apple-oauth-state", "", { maxAge: 0, path: "/" });
+      clearOAuthPlatformCookie(response);
       return response;
     }
 
@@ -61,9 +70,11 @@ export async function POST(request: NextRequest) {
     }
 
     const token = createToken(user.id);
-    const response = NextResponse.redirect(new URL("/", getAppOrigin(request)), { status: 303 });
+    const url = isNative ? buildNativeCallbackUrl({}) : new URL("/", getAppOrigin(request)).toString();
+    const response = NextResponse.redirect(url, { status: 303 });
     response.cookies.set("auth-token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 7, path: "/" });
     response.cookies.set("apple-oauth-state", "", { maxAge: 0, path: "/" });
+    clearOAuthPlatformCookie(response);
     return response;
   } catch (err) {
     console.error("Apple OAuth callback failed:", err);

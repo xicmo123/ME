@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { buildAppleAuthUrl, isAppleSignInConfigured } from "@/lib/appleAuth";
 import { getUserIdFromRequest } from "@/lib/auth";
+import { isNativeOAuthRequest, setOAuthPlatformCookie } from "@/lib/oauthNative";
 
 import { prisma } from "@/lib/prisma";
 
 // GET /api/auth/apple → 導向 Apple 登入頁。已登入的使用者走綁定流程（同 Google 的作法）。
+// ?platform=native → iOS App 用 in-app 瀏覽器發起的請求，callback 結束後要導回 App 而不是網頁版的 `/`。
 export async function GET(request: NextRequest) {
   if (!isAppleSignInConfigured()) {
     return NextResponse.json({ message: "尚未設定 Sign in with Apple 憑證" }, { status: 500 });
@@ -14,6 +16,7 @@ export async function GET(request: NextRequest) {
   const state = crypto.randomBytes(16).toString("hex");
   const response = NextResponse.redirect(buildAppleAuthUrl(state, request));
   response.cookies.set("apple-oauth-state", state, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 600, path: "/" });
+  setOAuthPlatformCookie(response, isNativeOAuthRequest(request));
   return response;
 }
 

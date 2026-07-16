@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X, Archive } from "lucide-react";
-import { isNative } from "@/lib/native";
+import { isNative, startOAuth } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
 
@@ -332,7 +332,7 @@ export function SettingsTab({
                 <span className={`text-xs ${textMuted}`}>✓</span>
               )
             ) : (
-              <a href="/api/auth/google" className="text-xs font-semibold" style={{ color: gold }}>綁定</a>
+              <button type="button" onClick={() => startOAuth("google")} className="text-xs font-semibold" style={{ color: gold }}>綁定</button>
             )}
           </div>
         )}
@@ -354,7 +354,7 @@ export function SettingsTab({
                 <span className={`text-xs ${textMuted}`}>✓</span>
               )
             ) : (
-              <a href="/api/auth/apple" className="text-xs font-semibold" style={{ color: gold }}>綁定</a>
+              <button type="button" onClick={() => startOAuth("apple")} className="text-xs font-semibold" style={{ color: gold }}>綁定</button>
             )}
           </div>
         )}

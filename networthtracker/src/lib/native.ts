@@ -4,8 +4,47 @@
 
 import { Capacitor } from "@capacitor/core";
 
+// 跟 capacitor.config.ts 的 server.url 一致——App 的 WKWebView 就是指到這個網域。
+const APP_ORIGIN = "https://zeno.zequo.net";
+
 export function isNative(): boolean {
   return Capacitor.isNativePlatform();
+}
+
+// Google/Apple 登入：網頁版直接同一頁導頁即可；App 版改用 in-app 瀏覽器（SFSafariViewController）開，
+// 不能像網頁版一樣直接 <a href> 導頁——Capacitor 的 WKWebView 只讓 server.url 網域內的導頁留在 App 裡，
+// 一旦導去 accounts.google.com 這種外部網域就會被丟到系統 Safari，使用者體感上是「登入了但變成網頁」，
+// 而且回不去 App。in-app 瀏覽器走完 OAuth 後，跟主要 WKWebView 共用同一份系統 cookie store，
+// 所以 callback 設下的 auth-token 主畫面馬上就讀得到；剩下只需要監聽 App 自訂 URL scheme 把使用者帶回來
+// （見下面的 initDeepLinkListener），不需要另外設計一次性換發碼。
+export async function startOAuth(provider: "google" | "apple") {
+  if (!isNative()) {
+    window.location.href = `/api/auth/${provider}`;
+    return;
+  }
+  const { Browser } = await import("@capacitor/browser");
+  await Browser.open({ url: `${APP_ORIGIN}/api/auth/${provider}?platform=native` });
+}
+
+// App 啟動時呼叫一次：監聽 OAuth in-app 瀏覽器導回 App 自訂 URL scheme（com.zenoworth.app://oauth-callback）
+// 的事件——iOS 收到這個 scheme 會自動關閉 in-app 瀏覽器分頁、把 App 帶回前景。把網址上的參數
+// （authError / linked）轉貼回主網域，重用既有「讀網址參數」的登入頁邏輯，畫面上的行為就跟網頁版一致。
+export function initDeepLinkListener() {
+  if (!isNative()) return;
+  void (async () => {
+    const { App } = await import("@capacitor/app");
+    App.addListener("appUrlOpen", (data: { url: string }) => {
+      try {
+        const opened = new URL(data.url);
+        if (`${opened.protocol}//${opened.host}` !== "com.zenoworth.app://oauth-callback") return;
+        const target = new URL("/", APP_ORIGIN);
+        opened.searchParams.forEach((value, key) => target.searchParams.set(key, value));
+        window.location.href = target.toString();
+      } catch {
+        // 網址格式不對就忽略，不影響其他 App 內操作
+      }
+    });
+  })();
 }
 
 export async function initNativeShell(isDarkMode: boolean) {
