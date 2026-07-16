@@ -73,6 +73,37 @@ export async function getEntitlementsForUser(userId: string): Promise<Entitlemen
   return resolveEntitlements(user);
 }
 
+// Free 方案「剩餘手動同步次數」查詢：讓前端在按下「更新」之前就能顯示「剩餘 X/3 次」或倒數重置時間，
+// 而不是等使用者按了才因為 402 被擋下來，體驗上比較不會有「被阻斷」的挫折感。
+export async function getManualSyncStatusForUser(userId: string): Promise<{
+  limit: number | null; // null = Pro，無上限
+  used: number;
+  remaining: number | null;
+  resetAt: string | null; // 最早那筆會在幾點過期（4 小時後）滾出限制窗口，null 代表沒有已用次數，或無上限
+}> {
+  const entitlements = await getEntitlementsForUser(userId);
+  if (entitlements.manualSyncLimitPer4Hours == null) {
+    return { limit: null, used: 0, remaining: null, resetAt: null };
+  }
+
+  const limit = entitlements.manualSyncLimitPer4Hours;
+  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+  const recentSyncs = await prisma.syncLog.findMany({
+    where: { userId, syncedAt: { gt: fourHoursAgo } },
+    orderBy: { syncedAt: "asc" },
+    select: { syncedAt: true },
+  });
+
+  const used = recentSyncs.length;
+  const remaining = Math.max(0, limit - used);
+  // 額度用完時，下一次恢復的時間點 = 目前這批紀錄裡最早一筆的時間 + 4 小時（它滾出視窗後名額就空出一次）
+  const resetAt = remaining === 0 && recentSyncs[0]
+    ? new Date(recentSyncs[0].syncedAt.getTime() + 4 * 60 * 60 * 1000).toISOString()
+    : null;
+
+  return { limit, used, remaining, resetAt };
+}
+
 // 降級後保留最早建立的 N 筆帳戶維持可用，其餘視為「鎖定」——鎖定帳戶的金額不計入
 // 總資產/負債/淨資產與資產配置，等重新升級成 Pro 才自動解鎖、資料回歸計算。
 // 前端（鎖頭遮罩）跟後端（淨值計算、目標進度）都呼叫這支，確保兩邊判斷一致。

@@ -32,17 +32,25 @@ export async function GET(request: NextRequest) {
   const goalsWithProgress = goals.map(goal => {
     let currentAmount = 0;
 
+    // 清償負債目標跟一般累積型目標的方向是反的：targetAmount 存的是「這筆負債最初的總金額」，
+    // 帳戶餘額（currentValue）隨著還款遞減至 0，所以「已還金額」= 總金額 - 目前餘額，
+    // 進度隨著餘額變小而推進，餘額歸零時達標。
+    let remainingBalance: number | null = null;
     if (goal.type === "NET_WORTH") {
       currentAmount = netWorth;
     } else if (goal.type === "ACCOUNT" && goal.accountId) {
       const account = unlockedAccounts.find(a => a.id === goal.accountId);
       currentAmount = Number(account?.currentValue ?? 0);
+    } else if (goal.type === "DEBT_PAYOFF" && goal.accountId) {
+      const account = unlockedAccounts.find(a => a.id === goal.accountId);
+      remainingBalance = Number(account?.currentValue ?? 0);
+      currentAmount = Math.max(0, goal.targetAmount - remainingBalance);
     }
 
     const progress = goal.targetAmount > 0
       ? Math.min(100, Math.round((currentAmount / goal.targetAmount) * 100))
       : 0;
-    const remaining = Math.max(0, goal.targetAmount - currentAmount);
+    const remaining = remainingBalance != null ? Math.max(0, remainingBalance) : Math.max(0, goal.targetAmount - currentAmount);
 
     return { ...goal, currentAmount, progress, remaining };
   });
@@ -64,6 +72,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "請填寫目標名稱和金額" }, { status: 400 });
   }
 
+  if (type === "DEBT_PAYOFF") {
+    if (!accountId) return NextResponse.json({ message: "請選擇要清償的負債帳戶" }, { status: 400 });
+    const account = await prisma.account.findFirst({ where: { id: accountId, userId, isActive: true } });
+    if (!account || account.type !== "LIABILITY") {
+      return NextResponse.json({ message: "清償負債目標必須選擇一個負債帳戶" }, { status: 400 });
+    }
+  }
+
   const entitlements = await getEntitlementsForUser(userId);
   if (entitlements.limits.maxGoals !== null) {
     const activeGoalCount = await prisma.goal.count({ where: { userId, isActive: true } });
@@ -78,7 +94,7 @@ export async function POST(request: NextRequest) {
       name: name.trim(),
       targetAmount: Number(targetAmount),
       type: type || "NET_WORTH",
-      accountId: type === "ACCOUNT" ? accountId : null,
+      accountId: type === "ACCOUNT" || type === "DEBT_PAYOFF" ? accountId : null,
       emoji: emoji || null,
     },
   });
@@ -99,13 +115,21 @@ export async function PUT(request: NextRequest) {
   const existing = await prisma.goal.findFirst({ where: { id, userId } });
   if (!existing) return NextResponse.json({ message: "目標不存在" }, { status: 404 });
 
+  if (type === "DEBT_PAYOFF") {
+    if (!accountId) return NextResponse.json({ message: "請選擇要清償的負債帳戶" }, { status: 400 });
+    const account = await prisma.account.findFirst({ where: { id: accountId, userId, isActive: true } });
+    if (!account || account.type !== "LIABILITY") {
+      return NextResponse.json({ message: "清償負債目標必須選擇一個負債帳戶" }, { status: 400 });
+    }
+  }
+
   const goal = await prisma.goal.update({
     where: { id },
     data: {
       name: name.trim(),
       targetAmount: Number(targetAmount),
       type: type || "NET_WORTH",
-      accountId: type === "ACCOUNT" ? accountId : null,
+      accountId: type === "ACCOUNT" || type === "DEBT_PAYOFF" ? accountId : null,
       emoji: emoji || null,
     },
   });

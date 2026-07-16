@@ -51,10 +51,23 @@ export async function register() {
     { timezone: "Asia/Taipei" }
   );
 
-  // 負債自動扣款改由前端在每次進入 App 時呼叫 /api/recurring/apply（見該檔案），
-  // 冪等且會正確記錄交易日期，不再需要這裡的背景 cron。
-  // （曾經同時保留這支 cron 呼叫 /api/accounts/apply-deductions，兩套邏輯互相不知道對方扣過款，
-  // 會在同一個扣款日各自扣一次，變成實質上的重複扣款，故移除。）
+  // 每天 00:05（台灣時間，早於 23:59 的每日快照約 23 小時 54 分鐘）：套用當天到期的定期扣款。
+  // 原本改成只由前端在每次進入 App 時呼叫 /api/recurring/apply，但若使用者長時間沒開 App，
+  // 扣款會被延遲到下次登入才一次補上，導致這段期間的每日快照少算了應扣的負債，走勢圖出現斷層。
+  // 改回背景 cron 每天遍歷所有使用者套用，維持數據在背景「絕對精準」；前端呼叫仍保留，
+  // 兩者都走同一支冪等邏輯（同帳戶當月已入帳就跳過），互不衝突。
+  cron.default.schedule(
+    "5 0 * * *",
+    async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/recurring/apply`, { method: "POST", headers: cronHeaders() });
+        console.log(`[Cron] 定期扣款套用完成，status: ${res.status}`);
+      } catch (error) {
+        console.error("[Cron] 定期扣款套用失敗:", error);
+      }
+    },
+    { timezone: "Asia/Taipei" }
+  );
 
-  console.log("[Cron] 排程已註冊：每 10 分鐘同步價格、每天 23:59 記錄淨資產快照");
+  console.log("[Cron] 排程已註冊：每 10 分鐘同步價格、每天 00:05 套用定期扣款、每天 23:59 記錄淨資產快照");
 }

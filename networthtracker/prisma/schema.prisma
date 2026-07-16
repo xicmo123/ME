@@ -201,9 +201,9 @@ model Goal {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   name        String   // 目標名稱，例如「買房頭期款」
-  targetAmount Float   // 目標金額（NT$）
-  type        String   @default("NET_WORTH") // NET_WORTH 或 ACCOUNT
-  accountId   String?  // type = ACCOUNT 時，指定哪個帳戶
+  targetAmount Float   // 目標金額（NT$）；type = DEBT_PAYOFF 時代表這筆負債最初的總金額
+  type        String   @default("NET_WORTH") // NET_WORTH、ACCOUNT 或 DEBT_PAYOFF
+  accountId   String?  // type = ACCOUNT 或 DEBT_PAYOFF 時，指定哪個帳戶（DEBT_PAYOFF 必須是負債帳戶）
   emoji       String?  // 可選的 emoji，例如 🏠
 
   isActive    Boolean  @default(true)

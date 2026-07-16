@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
 import CountUp from "react-countup";
-import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -47,7 +47,7 @@ const categoriesByType: Record<string, string[]> = {
 const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "0", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: "", deductionDate: "", interestRate: "", loanTermMonths: "", loanStartDate: "", deductFromAccountId: "" };
 const exchangesRequiringPassphrase = ["OKX"];
 
-type Tab = "overview" | "assets" | "trends" | "settings";
+type Tab = "overview" | "calendar" | "trends" | "settings";
 
 // 基準指數：實際行情由 /api/benchmark 透過 Yahoo Finance 抓取。
 // 顏色刻意跟「你的淨值」的金色（gold，見下方）以及彼此的色相都拉開差距，全部疊在一起時仍容易區分。
@@ -66,7 +66,7 @@ const LockedOverlay = ({ onClick }: { onClick: () => void }) => (
     className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-[inherit] backdrop-blur-sm bg-white/70 dark:bg-black/60 cursor-pointer"
   >
     <Lock className="h-4 w-4" style={{ color: "#B8933C" }} />
-    <span className="text-[10px] font-bold" style={{ color: "#B8933C" }}>升級 PRO 解鎖</span>
+    <span className="text-xs font-bold" style={{ color: "#B8933C" }}>升級 PRO 解鎖</span>
   </button>
 );
 
@@ -193,6 +193,13 @@ export default function HomePage() {
   const [toasts, setToasts] = useState<{ id: number; message: string; kind: "success" | "error" }[]>([]);
   const [itemDeleteTarget, setItemDeleteTarget] = useState<{ kind: "account" | "goal"; id: string; name: string } | null>(null);
   const [itemDeleting, setItemDeleting] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ limit: number | null; used: number; remaining: number | null; resetAt: string | null } | null>(null);
+  const [showArchivedAccounts, setShowArchivedAccounts] = useState(false);
+  const [archivedAccounts, setArchivedAccounts] = useState<any[]>([]);
+  const [archivedAccountsLoading, setArchivedAccountsLoading] = useState(false);
+  const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testConnectionResult, setTestConnectionResult] = useState<{ ok: boolean; message: string } | null>(null);
   // 降級提醒：Pro 掉回 Free 那次 session 跳出，列出哪些資產/負債/目標被鎖定，讓使用者選擇升級解鎖或直接刪除
   const [downgradeAlert, setDowngradeAlert] = useState<{ accounts: { id: string; name: string; type: string }[]; goals: { id: string; name: string }[] } | null>(null);
   const [downgradeBulkDeleting, setDowngradeBulkDeleting] = useState(false);
@@ -245,7 +252,7 @@ export default function HomePage() {
   }, [accounts]);
 
   useEffect(() => {
-    if (activeTab !== "assets" || heldStockSymbols.length === 0) return;
+    if (activeTab !== "calendar" || heldStockSymbols.length === 0) return;
     setStockEventsLoading(true);
     fetch(`/api/stock-events?symbols=${encodeURIComponent(heldStockSymbols.join(","))}`)
       .then((res) => res.json())
@@ -348,7 +355,23 @@ export default function HomePage() {
   }, [monthlyDeltas]);
 
   const goalEta = (goal: any): string | null => {
-    if (!monthlyGrowth || monthlyGrowth <= 0 || goal.progress >= 100) return null;
+    if (goal.progress >= 100) return null;
+
+    // 清償負債目標：淨資產整體成長率跟這筆負債的還款速度無關，改用該帳戶的每月扣款金額（本金部分）來推算，
+    // 沒填每月扣款金額就無法推算，回傳 null（不顯示預估日期，而非顯示錯誤的推算）。
+    if (goal.type === "DEBT_PAYOFF") {
+      const account = accounts.find((a: any) => a.id === goal.accountId);
+      const monthlyPace = Number(account?.monthlyDeductionAmount ?? 0);
+      if (!monthlyPace || monthlyPace <= 0) return null;
+      const remainingBalance = Number(goal.remaining ?? 0);
+      const months = remainingBalance / monthlyPace;
+      if (!isFinite(months) || months <= 0 || months > 240) return null;
+      const d = new Date();
+      d.setMonth(d.getMonth() + Math.ceil(months));
+      return `${d.getFullYear()}/${d.getMonth() + 1}`;
+    }
+
+    if (!monthlyGrowth || monthlyGrowth <= 0) return null;
     const remain = Number(goal.targetAmount) - Number(goal.currentAmount);
     const months = remain / monthlyGrowth;
     if (!isFinite(months) || months <= 0 || months > 240) return null;
@@ -454,7 +477,7 @@ export default function HomePage() {
             if (data?.processed?.length) showToast(`已自動記錄 ${data.processed.length} 筆本月定期扣款`);
           }
         } catch { }
-        await Promise.allSettled([fetchAccounts(), fetchTransactions(), fetchExchangeRate(), fetchGoals()]);
+        await Promise.allSettled([fetchAccounts(), fetchTransactions(), fetchExchangeRate(), fetchGoals(), fetchSyncStatus()]);
         // 每次進入 App 都記錄「今天」的淨資產快照，讓歷史逐日累積（否則走勢圖只有今天一個點）
         await fetch("/api/history/snapshot").catch(() => { });
         await fetchHistory();
@@ -680,7 +703,7 @@ export default function HomePage() {
     setItemDeleteTarget({ kind: "goal", id, name });
   }
 
-  function resetForm() { setFormData(defaultForm); setEditingAccountId(null); setEditingHasApiCredentials(false); setShowForm(false); }
+  function resetForm() { setFormData(defaultForm); setEditingAccountId(null); setEditingHasApiCredentials(false); setShowForm(false); setTestConnectionResult(null); }
 
   function startEdit(account: any) {
     setFormData({ name: account.name, type: account.type, category: account.category, symbol: account.symbol ?? "", quantity: String(account.quantity ?? account.currentValue ?? 0), currency: account.currency, isApiConnected: Boolean(account.isApiConnected), apiSource: account.apiSource ?? "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: account.monthlyDeductionAmount ? String(account.monthlyDeductionAmount) : "", deductionDate: account.deductionDate ? String(account.deductionDate) : "", interestRate: account.interestRate != null ? String(account.interestRate) : "", loanTermMonths: account.loanTermMonths != null ? String(account.loanTermMonths) : "", loanStartDate: account.loanStartDate ? String(account.loanStartDate).slice(0, 10) : "", deductFromAccountId: account.deductFromAccountId ?? "" });
@@ -729,15 +752,76 @@ export default function HomePage() {
       if (itemDeleteTarget.kind === "account") {
         await fetch(`/api/accounts/${itemDeleteTarget.id}`, { method: "DELETE" });
         await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchGoals()]);
+        showToast(`已封存「${itemDeleteTarget.name}」，可在設定頁的「已封存帳戶」中復原`);
       } else {
         await fetch(`/api/goals?id=${itemDeleteTarget.id}`, { method: "DELETE" });
         await fetchGoals();
+        showToast(`已刪除「${itemDeleteTarget.name}」`);
       }
-      showToast(`已刪除「${itemDeleteTarget.name}」`);
       setItemDeleteTarget(null);
     } catch (e) {
-      showToast("刪除失敗，請再試一次", "error");
+      showToast("操作失敗，請再試一次", "error");
     } finally { setItemDeleting(false); }
+  }
+
+  async function fetchArchivedAccounts() {
+    setArchivedAccountsLoading(true);
+    try {
+      const res = await fetch("/api/accounts?archived=true");
+      if (res.ok) setArchivedAccounts(await res.json());
+    } catch (e) {
+      showToast("讀取已封存帳戶失敗", "error");
+    } finally { setArchivedAccountsLoading(false); }
+  }
+
+  async function handleOpenArchivedAccounts() {
+    setShowArchivedAccounts(true);
+    fetchArchivedAccounts();
+  }
+
+  async function handleRestoreAccount(accountId: string, name: string) {
+    setRestoringAccountId(accountId);
+    try {
+      const res = await fetch(`/api/accounts/${accountId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore" }),
+      });
+      if (!res.ok) throw new Error("restore failed");
+      setArchivedAccounts((prev) => prev.filter((a) => a.id !== accountId));
+      await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]);
+      showToast(`已復原「${name}」`);
+    } catch (e) {
+      showToast("復原失敗，請再試一次", "error");
+    } finally { setRestoringAccountId(null); }
+  }
+
+  async function handleTestConnection() {
+    setTestingConnection(true);
+    setTestConnectionResult(null);
+    try {
+      const res = await fetch("/api/accounts/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiSource: formData.apiSource,
+          apiKey: formData.apiKey,
+          apiSecret: formData.apiSecret,
+          apiPassphrase: formData.apiPassphrase,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      setTestConnectionResult({ ok: res.ok && data?.ok, message: data?.message || (res.ok ? "連線成功" : "連線失敗") });
+    } catch (e) {
+      setTestConnectionResult({ ok: false, message: "連線失敗，請確認網路連線" });
+    } finally { setTestingConnection(false); }
+  }
+
+  async function fetchSyncStatus() {
+    try {
+      const res = await fetch("/api/sync-status");
+      if (res.ok) setSyncStatus(await res.json());
+    } catch (e) { }
   }
 
   async function handleSyncPrices() {
@@ -748,6 +832,7 @@ export default function HomePage() {
         if (res.status === 402) {
           const data = await res.json().catch(() => null);
           showToast(data?.message || "免費方案已達本次可手動同步的次數上限，升級 Pro 解鎖即時自動更新", "error");
+          fetchSyncStatus();
           return;
         }
         showToast(res.status === 429 ? "更新失敗，API 已達使用額度上限，請稍後再試" : "更新失敗，價格來源暫時無法使用", "error");
@@ -760,6 +845,7 @@ export default function HomePage() {
       }
       await fetch("/api/history/snapshot").catch(() => { }); // 更新後把最新淨值寫入今天的快照
       await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchExchangeRate(), fetchGoals()]);
+      fetchSyncStatus();
       showToast("已更新最新價格");
     } catch (e) {
       showToast(navigator.onLine === false ? "更新失敗，請確認網路連線" : "更新失敗，請稍後再試", "error");
@@ -1198,13 +1284,13 @@ export default function HomePage() {
   const gold = "#B8933C";
   const inputCls = "w-full h-11 px-3.5 text-sm outline-none bg-transparent text-[#1C1F1A] dark:text-[#E7E5DE] border-b-2 border-black/15 dark:border-white/15 focus:border-[#B8933C] transition-colors";
   const btnPrimary = "w-full py-3.5 text-sm font-semibold bg-[#1C1F1A] dark:bg-[#B8933C] text-[#EEF0EC] dark:text-[#0B0D12] rounded-lg hover:opacity-90 transition-all cursor-pointer";
-  const sectionLabel = "text-[9px] font-bold tracking-[0.2em] uppercase text-[#6B7066] dark:text-[#8A8F82]";
+  const sectionLabel = "text-xs font-bold tracking-[0.2em] uppercase text-[#6B7066] dark:text-[#8A8F82]";
   // 標題階層統一：頁面標題 22px（各分頁 h1/h2）、區塊標題小字 uppercase（sectionLabel）、卡片標題 14px bold（cardTitle）
   const cardTitle = "text-sm font-bold";
 
   const navItems: { key: Tab; icon: any; label: string }[] = [
     { key: "overview", icon: LayoutDashboard, label: "總覽" },
-    { key: "assets", icon: CalendarDays, label: "行事曆" },
+    { key: "calendar", icon: CalendarDays, label: "行事曆" },
     { key: "trends", icon: TrendingUp, label: "走勢" },
     { key: "settings", icon: Settings, label: "設定" },
   ];
@@ -1257,7 +1343,7 @@ export default function HomePage() {
 
           <div className="w-full flex items-center gap-3 my-4">
             <div className="flex-1 h-px bg-black/10 dark:bg-white/10" />
-            <span className={`text-[10px] ${textMuted}`}>或</span>
+            <span className={`text-xs ${textMuted}`}>或</span>
             <div className="flex-1 h-px bg-black/10 dark:bg-white/10" />
           </div>
 
@@ -1322,9 +1408,9 @@ export default function HomePage() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0 pt-1.5">
-                  <span className="text-[10px] font-bold tracking-[0.18em] uppercase truncate"><Wallet className="inline h-3 w-3 mr-1 -mt-0.5" />目前淨資產</span>
+                  <span className="text-xs font-bold tracking-[0.18em] uppercase truncate"><Wallet className="inline h-3 w-3 mr-1 -mt-0.5" />目前淨資產</span>
                   {monthlyReport && !hideBalance && (
-                    <span className="font-mono-ledger text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: HERO_THEMES[heroTheme].chipBtnBg }}>
+                    <span className="font-mono-ledger text-xs font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: HERO_THEMES[heroTheme].chipBtnBg }}>
                       {monthlyReport.delta >= 0 ? "+" : "−"}{Math.abs(monthlyReport.pct).toFixed(1)}%
                     </span>
                   )}
@@ -1420,7 +1506,7 @@ export default function HomePage() {
                         <span className="h-2 w-2 rounded-full shrink-0" style={{ background: r.color }} />
                         <span className="font-medium truncate">{r.name}</span>
                         <span className="ml-auto font-mono-ledger font-semibold shrink-0">{((r.value / allocation.total) * 100).toFixed(1)}%</span>
-                        {!hideBalance && <span className={`font-mono-ledger text-[10px] ${textMuted} shrink-0 text-right`}>{formatCompactNumber(r.value)}</span>}
+                        {!hideBalance && <span className={`font-mono-ledger text-xs ${textMuted} shrink-0 text-right`}>{formatCompactNumber(r.value)}</span>}
                       </div>
                     ))}
                   </div>
@@ -1430,7 +1516,7 @@ export default function HomePage() {
 
             {/* 目標 — 直向清單卡 */}
             <div className="flex items-center justify-between px-1">
-              <span className={`text-[10px] font-bold tracking-[0.18em] uppercase ${textMuted}`}>目標</span>
+              <span className={`text-xs font-bold tracking-[0.18em] uppercase ${textMuted}`}>目標</span>
               <button onClick={() => { setEditingGoal(null); setGoalForm({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" }); setShowGoalForm(true); }} className="text-[11px] font-semibold hover:underline underline-offset-2" style={{ color: gold }}>+ 新增</button>
             </div>
             {goals.length === 0 ? (
@@ -1461,7 +1547,7 @@ export default function HomePage() {
                       <div className="w-full bg-black/[0.06] dark:bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
                         <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${Math.min(100, goal.progress)}%`, background: goal.progress >= 100 ? "#4F7B5E" : gold }} />
                       </div>
-                      <div className={`flex flex-wrap justify-between gap-x-2 mt-1 font-mono-ledger text-[10px] ${textMuted}`}>
+                      <div className={`flex flex-wrap justify-between gap-x-2 mt-1 font-mono-ledger text-xs ${textMuted}`}>
                         <span className="whitespace-nowrap">{hideBalance ? "••••" : `NT$ ${Math.round(Number(goal.currentAmount)).toLocaleString()}`}</span>
                         {goal.progress < 100
                           ? <span className="whitespace-nowrap ml-auto">目標 NT$ {Number(goal.targetAmount).toLocaleString()}</span>
@@ -1476,7 +1562,7 @@ export default function HomePage() {
 
             {/* 帳戶 */}
             <div className="flex items-center justify-between px-1">
-              <span className={`text-[10px] font-bold tracking-[0.18em] uppercase ${textMuted}`}>帳戶</span>
+              <span className={`text-xs font-bold tracking-[0.18em] uppercase ${textMuted}`}>帳戶</span>
             </div>
             {accounts.length > 0 && (
               <div className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 ${surface}`}>
@@ -1525,7 +1611,7 @@ export default function HomePage() {
                       <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} style={{ color: group.color }} />
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: group.color }} />
                       <h3 className={`font-display ${cardTitle}`}>{group.title}</h3>
-                      <span className={`font-mono-ledger text-[10px] ${textMuted}`}>{group.cards.length} 項</span>
+                      <span className={`font-mono-ledger text-xs ${textMuted}`}>{group.cards.length} 項</span>
                     </button>
                     <div className="flex items-baseline gap-3 shrink-0">
                       <span className={`font-mono-ledger text-xs font-semibold ${group.title === "負債總額" ? "text-[#A24936]" : ""}`}>{hideBalance ? "••••" : `NT$ ${formatCurrency(groupTotal)}`}</span>
@@ -1564,17 +1650,17 @@ export default function HomePage() {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="text-sm font-bold truncate">{card.title.replace(/\.TW$/i, "")}</p>
-                              <p className={`text-[9px] font-bold tracking-wider uppercase mt-0.5 ${textMuted}`}>{categoryLabelMap[card.category]}{showSubtitle && <span className="normal-case tracking-normal font-medium" style={{ color: gold }}> · {card.subtitle}</span>}</p>
+                              <p className={`text-xs font-bold tracking-wider uppercase mt-0.5 ${textMuted}`}>{categoryLabelMap[card.category]}{showSubtitle && <span className="normal-case tracking-normal font-medium" style={{ color: gold }}> · {card.subtitle}</span>}</p>
                             </div>
                             <div className="flex items-center shrink-0">
                               <button onClick={() => startEdit(card.account)} aria-label="編輯資產" className={`p-2 -m-1 ${textMuted} hover:text-[#B8933C] active:scale-90 transition-transform`}><Pencil className="h-3 w-3" /></button>
-                              <button onClick={() => handleDelete(card.account.id, card.account.name)} aria-label="刪除資產" className={`p-2 -m-1 ${textMuted} hover:text-[#A24936] active:scale-90 transition-transform`}><Trash2 className="h-3 w-3" /></button>
+                              <button onClick={() => handleDelete(card.account.id, card.account.name)} aria-label="封存資產" className={`p-2 -m-1 ${textMuted} hover:text-[#A24936] active:scale-90 transition-transform`}><Archive className="h-3 w-3" /></button>
                             </div>
                           </div>
                           <p className={`font-mono-ledger text-[15px] font-bold mt-2.5 truncate ${group.title === "負債總額" ? "text-[#A24936]" : ""}`}>
                             {hideBalance ? "••••" : `NT$ ${formatCurrency(card.currentValue)}`}
                           </p>
-                          <div className={`mt-1 flex items-center gap-2 font-mono-ledger text-[10px] ${textMuted}`}>
+                          <div className={`mt-1 flex items-center gap-2 font-mono-ledger text-xs ${textMuted}`}>
                             <p className="min-w-0 flex-1 truncate">
                               {symbolRequiredCategories.includes(card.category) ? `持有 ${formatCurrency(card.quantity)} 股` : card.account.type === "LIABILITY" && card.account.loanStartDate ? `貸款總額 ${formatCurrency(card.quantity)}` : `餘額 ${formatCurrency(card.quantity)}`}
                               {symbolRequiredCategories.includes(card.category) && card.currentPrice > 0 && (
@@ -1582,25 +1668,25 @@ export default function HomePage() {
                               )}
                             </p>
                             {symbolRequiredCategories.includes(card.category) && card.priceChangePct != null && (
-                              <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold" style={{ color: gainColor, background: `${gainColor}1A` }}>
+                              <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs font-bold" style={{ color: gainColor, background: `${gainColor}1A` }}>
                                 {card.priceChangePct >= 0 ? "+" : ""}{card.priceChangePct.toFixed(1)}%
                               </span>
                             )}
                           </div>
                           {card.account.type === "LIABILITY" && (card.account.interestRate != null || card.account.loanTermMonths != null) && (
-                            <p className={`text-[10px] mt-0.5 truncate ${textMuted}`}>
+                            <p className={`text-xs mt-0.5 truncate ${textMuted}`}>
                               {card.account.interestRate != null && <span>利率 {card.account.interestRate}%</span>}
                               {card.account.interestRate != null && card.account.loanTermMonths != null && <span> · </span>}
                               {card.account.loanTermMonths != null && <span>已繳 {card.account.paidInstallments ?? 0}/{card.account.loanTermMonths} 期</span>}
                             </p>
                           )}
                           {card.account.type === "LIABILITY" && card.account.deductFromAccountId && card.account.deductionDate != null && (
-                            <p className={`text-[10px] mt-0.5 truncate ${textMuted}`}>
+                            <p className={`text-xs mt-0.5 truncate ${textMuted}`}>
                               每月 {card.account.deductionDate} 日自動從「{accounts.find((a: any) => a.id === card.account.deductFromAccountId)?.name ?? "已刪除帳戶"}」扣款
                             </p>
                           )}
                           {card.account.isApiConnected && card.account.apiSyncError && (
-                            <button onClick={() => startEdit(card.account)} className="text-[10px] mt-1 font-semibold text-red-500 underline underline-offset-2 active:opacity-60">⚠️ API 已過期，立即設定</button>
+                            <button onClick={() => startEdit(card.account)} className="text-xs mt-1 font-semibold text-red-500 underline underline-offset-2 active:opacity-60">⚠️ API 已過期，立即設定</button>
                           )}
                         </div>
                       );
@@ -1625,7 +1711,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {activeTab === "assets" && (
+        {activeTab === "calendar" && (
           <div className="px-5 pt-5 pb-4 max-w-lg mx-auto space-y-4">
             <div className="flex items-center justify-between pb-2">
               <h2 className="font-display text-[22px] font-bold tracking-tight">行事曆</h2>
@@ -1647,7 +1733,7 @@ export default function HomePage() {
                     </div>
                     <div className="grid grid-cols-7 gap-1 mb-1">
                       {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
-                        <div key={d} className={`text-center text-[10px] font-semibold ${textMuted}`}>{d}</div>
+                        <div key={d} className={`text-center text-xs font-semibold ${textMuted}`}>{d}</div>
                       ))}
                     </div>
                     <div className="space-y-1">
@@ -1685,7 +1771,7 @@ export default function HomePage() {
                     {Object.values(eventTypeMeta).map((m) => (
                       <div key={m.label} className="flex items-center gap-1.5">
                         <span className="h-2 w-2 rounded-full" style={{ background: m.color }} />
-                        <span className={`text-[10px] ${textMuted}`}>{m.label}</span>
+                        <span className={`text-xs ${textMuted}`}>{m.label}</span>
                       </div>
                     ))}
                   </div>
@@ -1738,35 +1824,35 @@ export default function HomePage() {
               <div className={`${surface} rounded-2xl p-3`}>
                 <div className="flex items-center justify-between mb-0.5">
                   <p className={sectionLabel}>本期摘要</p>
-                  <span className={`text-[10px] ${textMuted}`}>{timeframeLabel}</span>
+                  <span className={`text-xs ${textMuted}`}>{timeframeLabel}</span>
                 </div>
                 {/* 明確標出「本期」指的是哪個區間，避免跟「本期變化/日均變化」的定義兜不起來 */}
-                <p className={`text-[10px] mb-2 ${textMuted}`}>
+                <p className={`text-xs mb-2 ${textMuted}`}>
                   區間：{periodStats.first.label || periodStats.first.date} → {periodStats.last.label || periodStats.last.date}（共 {periodStats.days} 天）
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <p className={`text-[10px] ${textMuted}`}>本期變化<span className="opacity-70">（區間末－區間初）</span></p>
+                    <p className={`text-xs ${textMuted}`}>本期變化<span className="opacity-70">（區間末－區間初）</span></p>
                     <p className="font-mono-ledger text-sm font-bold mt-0.5" style={{ color: periodStats.delta >= 0 ? "#4F7B5E" : "#A24936" }}>
                       {hideBalance ? "••••" : `${periodStats.delta >= 0 ? "+" : "−"}${formatCompactNumber(Math.abs(periodStats.delta))}`}
-                      {periodStats.pct !== null && <span className="ml-1.5 text-[10px]">{periodStats.pct >= 0 ? "+" : "−"}{Math.abs(periodStats.pct).toFixed(1)}%</span>}
+                      {periodStats.pct !== null && <span className="ml-1.5 text-xs">{periodStats.pct >= 0 ? "+" : "−"}{Math.abs(periodStats.pct).toFixed(1)}%</span>}
                     </p>
                   </div>
                   <div>
-                    <p className={`text-[10px] ${textMuted}`}>日均變化<span className="opacity-70">（本期變化 ÷ 天數）</span></p>
+                    <p className={`text-xs ${textMuted}`}>日均變化<span className="opacity-70">（本期變化 ÷ 天數）</span></p>
                     <p className="font-mono-ledger text-sm font-bold mt-0.5" style={{ color: periodStats.dailyAvg >= 0 ? "#4F7B5E" : "#A24936" }}>
                       {hideBalance ? "••••" : `${periodStats.dailyAvg >= 0 ? "+" : "−"}${formatCompactNumber(Math.round(Math.abs(periodStats.dailyAvg)))}`}
                     </p>
                   </div>
                   <div>
-                    <p className={`text-[10px] ${textMuted}`}>期間最高</p>
+                    <p className={`text-xs ${textMuted}`}>期間最高</p>
                     <p className="font-mono-ledger text-xs font-bold mt-0.5">{hideBalance ? "••••" : formatCompactNumber(periodStats.high.netWorth)}</p>
-                    <p className={`text-[10px] ${textMuted}`}>{periodStats.high.label || periodStats.high.date}</p>
+                    <p className={`text-xs ${textMuted}`}>{periodStats.high.label || periodStats.high.date}</p>
                   </div>
                   <div>
-                    <p className={`text-[10px] ${textMuted}`}>期間最低</p>
+                    <p className={`text-xs ${textMuted}`}>期間最低</p>
                     <p className="font-mono-ledger text-xs font-bold mt-0.5">{hideBalance ? "••••" : formatCompactNumber(periodStats.low.netWorth)}</p>
-                    <p className={`text-[10px] ${textMuted}`}>{periodStats.low.label || periodStats.low.date}</p>
+                    <p className={`text-xs ${textMuted}`}>{periodStats.low.label || periodStats.low.date}</p>
                   </div>
                 </div>
               </div>
@@ -1855,7 +1941,7 @@ export default function HomePage() {
                     <span key={k} className="flex items-center gap-1.5 text-[11px] font-semibold"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: BENCHMARKS[k].color }} />{BENCHMARKS[k].label}</span>
                   ))}
                   <div className="ml-auto flex items-center gap-2.5">
-                    <span className={`text-[10px] ${textMuted}`}>{benchmarkLoading ? "抓取行情中…" : "成長率 · 以區間首日為 0%"}</span>
+                    <span className={`text-xs ${textMuted}`}>{benchmarkLoading ? "抓取行情中…" : "成長率 · 以區間首日為 0%"}</span>
                   </div>
                 </div>
               ) : (
@@ -1866,7 +1952,7 @@ export default function HomePage() {
                     </button>
                   ))}
                   {trendView === "breakdown" && (
-                    <span className={`ml-auto flex items-center gap-3 text-[10px] ${textMuted}`}>
+                    <span className={`ml-auto flex items-center gap-3 text-xs ${textMuted}`}>
                       <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4F7B5E]" />資產</span>
                       <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#A24936]" />負債</span>
                     </span>
@@ -1941,10 +2027,10 @@ export default function HomePage() {
                     const m = meta[tx.type] ?? { label: tx.type, sign: "−" as const, color: "#8A8F82" };
                     return (
                       <div key={tx.id} className="flex items-center gap-3 py-2.5">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ color: m.color, background: `${m.color}1A` }}>{m.label}</span>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0" style={{ color: m.color, background: `${m.color}1A` }}>{m.label}</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium truncate">{tx.account?.name ?? tx.description ?? "—"}</p>
-                          <p className={`text-[10px] ${textMuted}`}>
+                          <p className={`text-xs ${textMuted}`}>
                             {String(tx.date).slice(0, 10)}
                             {tx.type === "AUTO_DEDUCTION" && tx.price != null && (
                               <span> · 本金 {formatCurrency(Number(tx.quantity ?? 0))} · 利息 {formatCurrency(Number(tx.price))}</span>
@@ -1975,6 +2061,7 @@ export default function HomePage() {
             dataHealth={dataHealth}
             handleSyncPrices={handleSyncPrices}
             syncing={syncing}
+            syncStatus={syncStatus}
             exchangeRate={exchangeRate}
             setShowHistoryForm={setShowHistoryForm}
             handleExportCsv={handleExportCsv}
@@ -1998,6 +2085,7 @@ export default function HomePage() {
             handleAppleUnlink={handleAppleUnlink}
             handleLogout={handleLogout}
             setShowDeleteConfirm={setShowDeleteConfirm}
+            handleOpenArchivedAccounts={handleOpenArchivedAccounts}
           />
         )}
       </div>
@@ -2010,7 +2098,7 @@ export default function HomePage() {
             return (
               <button key={key} onClick={() => { void hapticImpact("light"); setActiveTab(key); }} className={`flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-colors cursor-pointer ${active ? "" : "text-[#3D4136] dark:text-[#C7CBBE]"}`}>
                 <Icon className="h-5 w-5" style={active ? { color: gold } : undefined} />
-                <span className="text-[10px] font-semibold" style={active ? { color: gold } : undefined}>{label}</span>
+                <span className="text-xs font-semibold" style={active ? { color: gold } : undefined}>{label}</span>
               </button>
             );
           })}
@@ -2024,7 +2112,7 @@ export default function HomePage() {
             return (
               <button key={key} onClick={() => { void hapticImpact("light"); setActiveTab(key); }} className={`flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-colors cursor-pointer ${active ? "" : "text-[#3D4136] dark:text-[#C7CBBE]"}`}>
                 <Icon className="h-5 w-5" style={active ? { color: gold } : undefined} />
-                <span className="text-[10px] font-semibold" style={active ? { color: gold } : undefined}>{label}</span>
+                <span className="text-xs font-semibold" style={active ? { color: gold } : undefined}>{label}</span>
               </button>
             );
           })}
@@ -2172,7 +2260,7 @@ export default function HomePage() {
                       <div className="space-y-4 pl-6">
                         <div>
                           <label className={`block text-xs mb-2 ${sectionLabel}`}>交易所</label>
-                          <select value={formData.apiSource} onChange={(e) => setFormData({ ...formData, apiSource: e.target.value })} className={inputCls}>
+                          <select value={formData.apiSource} onChange={(e) => { setFormData({ ...formData, apiSource: e.target.value }); setTestConnectionResult(null); }} className={inputCls}>
                             <option value="BITFINEX">Bitfinex</option>
                             <option value="BINANCE">幣安 Binance</option>
                             <option value="OKX">OKX</option>
@@ -2181,18 +2269,33 @@ export default function HomePage() {
                         </div>
                         <div>
                           <label className={`block text-xs mb-2 ${sectionLabel}`}>API Key{editingHasApiCredentials ? "（留空則不變更）" : ""}</label>
-                          <input type="password" autoComplete="off" placeholder={editingHasApiCredentials ? "••••••••（已設定）" : ""} value={formData.apiKey} onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                          <input type="password" autoComplete="off" placeholder={editingHasApiCredentials ? "••••••••（已設定）" : ""} value={formData.apiKey} onChange={(e) => { setFormData({ ...formData, apiKey: e.target.value }); setTestConnectionResult(null); }} className={`${inputCls} font-mono-ledger`} />
                         </div>
                         <div>
                           <label className={`block text-xs mb-2 ${sectionLabel}`}>API Secret{editingHasApiCredentials ? "（留空則不變更）" : ""}</label>
-                          <input type="password" autoComplete="off" placeholder={editingHasApiCredentials ? "••••••••（已設定）" : ""} value={formData.apiSecret} onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                          <input type="password" autoComplete="off" placeholder={editingHasApiCredentials ? "••••••••（已設定）" : ""} value={formData.apiSecret} onChange={(e) => { setFormData({ ...formData, apiSecret: e.target.value }); setTestConnectionResult(null); }} className={`${inputCls} font-mono-ledger`} />
                         </div>
                         {exchangesRequiringPassphrase.includes(formData.apiSource) && (
                           <div>
                             <label className={`block text-xs mb-2 ${sectionLabel}`}>Passphrase{editingHasApiCredentials ? "（留空則不變更）" : ""}</label>
-                            <input type="password" autoComplete="off" placeholder={editingHasApiCredentials ? "••••••••（已設定）" : ""} value={formData.apiPassphrase} onChange={(e) => setFormData({ ...formData, apiPassphrase: e.target.value })} className={`${inputCls} font-mono-ledger`} />
+                            <input type="password" autoComplete="off" placeholder={editingHasApiCredentials ? "••••••••（已設定）" : ""} value={formData.apiPassphrase} onChange={(e) => { setFormData({ ...formData, apiPassphrase: e.target.value }); setTestConnectionResult(null); }} className={`${inputCls} font-mono-ledger`} />
                           </div>
                         )}
+                        <div>
+                          <button
+                            type="button"
+                            onClick={handleTestConnection}
+                            disabled={testingConnection || !formData.apiKey.trim() || !formData.apiSecret.trim() || (exchangesRequiringPassphrase.includes(formData.apiSource) && !formData.apiPassphrase.trim())}
+                            className="w-full py-2.5 text-sm font-semibold rounded-lg border border-black/10 dark:border-white/10 hover:border-[#B8933C] disabled:opacity-40 transition-colors cursor-pointer"
+                          >
+                            {testingConnection ? "測試連線中…" : "測試連線"}
+                          </button>
+                          {testConnectionResult && (
+                            <p className={`text-xs mt-2 ${testConnectionResult.ok ? "text-[#4F7B5E]" : "text-[#A24936]"}`}>
+                              {testConnectionResult.ok ? "✓ " : "✗ "}{testConnectionResult.message}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2272,7 +2375,7 @@ export default function HomePage() {
                       <span className="h-2 w-2 rounded-full shrink-0" style={{ background: group.color }} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate">{card.title.replace(/\.TW$/i, "")}</p>
-                        <p className={`text-[10px] ${textMuted}`}>
+                        <p className={`text-xs ${textMuted}`}>
                           {categoryLabelMap[card.category]}{pct > 0 && ` · 佔比 ${pct.toFixed(1)}%`}
                           {isStock && card.currentPrice > 0 && <span className="ml-1 font-semibold" style={{ color: gold }}>· 現價 {formatCurrency(card.currentPrice)}</span>}
                         </p>
@@ -2281,7 +2384,7 @@ export default function HomePage() {
                       <div className="flex items-center shrink-0">
                         {/* 編輯表單的 modal 在 DOM 順序上比這個「查看全部」modal 早，同層級 z-50 疊圖時會被蓋住，所以點編輯要先關掉這層 */}
                         <button onClick={() => { setDetailGroupTitle(null); startEdit(card.account); }} aria-label="編輯資產" className={`p-1.5 -m-0.5 ${textMuted} hover:text-[#B8933C] active:scale-90 transition-transform`}><Pencil className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => handleDelete(card.account.id, card.account.name)} aria-label="刪除資產" className={`p-1.5 -m-0.5 ${textMuted} hover:text-[#A24936] active:scale-90 transition-transform`}><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => handleDelete(card.account.id, card.account.name)} aria-label="封存資產" className={`p-1.5 -m-0.5 ${textMuted} hover:text-[#A24936] active:scale-90 transition-transform`}><Archive className="h-3.5 w-3.5" /></button>
                       </div>
                     </div>
                   );
@@ -2409,14 +2512,18 @@ export default function HomePage() {
                   <input value={goalForm.name} onChange={e => setGoalForm({ ...goalForm, name: e.target.value })} placeholder="例如：買房頭期款" className={inputCls} required />
                 </div>
                 <div>
-                  <label className={`block text-xs mb-2 ${sectionLabel}`}>目標金額 (NT$)</label>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>{goalForm.type === "DEBT_PAYOFF" ? "負債總金額 (NT$)" : "目標金額 (NT$)"}</label>
                   <input type="number" inputMode="decimal" step="any" min="1" value={goalForm.targetAmount} onChange={e => setGoalForm({ ...goalForm, targetAmount: e.target.value })} placeholder="例如：3000000" className={`${inputCls} font-mono-ledger`} required />
+                  {goalForm.type === "DEBT_PAYOFF" && (
+                    <p className={`text-xs mt-1.5 ${textMuted}`}>填入這筆負債最初的總金額，進度會隨著餘額減少而推進，還清時達標。</p>
+                  )}
                 </div>
                 <div>
-                  <label className={`block text-xs mb-2 ${sectionLabel}`}>計算基準</label>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>目標類型</label>
                   <select value={goalForm.type} onChange={e => setGoalForm({ ...goalForm, type: e.target.value, accountId: "" })} className={inputCls}>
-                    <option value="NET_WORTH">總淨資產</option>
-                    <option value="ACCOUNT">特定帳戶</option>
+                    <option value="NET_WORTH">累積資產（總淨資產）</option>
+                    <option value="ACCOUNT">累積資產（特定帳戶）</option>
+                    <option value="DEBT_PAYOFF">清償負債</option>
                   </select>
                 </div>
                 {goalForm.type === "ACCOUNT" && (
@@ -2428,6 +2535,20 @@ export default function HomePage() {
                         <option key={a.id} value={a.id}>{a.name}（NT$ {Number(a.currentValue).toLocaleString()}）</option>
                       ))}
                     </select>
+                  </div>
+                )}
+                {goalForm.type === "DEBT_PAYOFF" && (
+                  <div>
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>選擇負債帳戶</label>
+                    <select value={goalForm.accountId} onChange={e => setGoalForm({ ...goalForm, accountId: e.target.value })} className={inputCls} required>
+                      <option value="">請選擇負債帳戶</option>
+                      {accounts.filter(a => a.isActive !== false && a.type === "LIABILITY").map(a => (
+                        <option key={a.id} value={a.id}>{a.name}（剩餘 NT$ {Number(a.currentValue).toLocaleString()}）</option>
+                      ))}
+                    </select>
+                    {accounts.filter(a => a.isActive !== false && a.type === "LIABILITY").length === 0 && (
+                      <p className="text-xs mt-1.5 text-[#A24936]">目前沒有負債帳戶，請先新增一筆負債</p>
+                    )}
                   </div>
                 )}
                 <div className="flex gap-3 pt-2">
@@ -2473,16 +2594,59 @@ export default function HomePage() {
               </div>
               <div>
                 <h3 className="font-display text-base font-semibold text-[#A24936]">
-                  {itemDeleteTarget.kind === "goal" ? "刪除目標" : "刪除資產"}
+                  {itemDeleteTarget.kind === "goal" ? "刪除目標" : "封存資產"}
                 </h3>
-                <p className={`text-sm ${textMuted} mt-1 leading-relaxed`}>確定要刪除「{itemDeleteTarget.name}」嗎？此操作無法復原。</p>
+                <p className={`text-sm ${textMuted} mt-1 leading-relaxed`}>{itemDeleteTarget.kind === "goal" ? `確定要刪除「${itemDeleteTarget.name}」嗎？此操作無法復原。` : `確定要封存「${itemDeleteTarget.name}」嗎？封存後不會出現在資產清單中，但歷史紀錄會保留，之後可在設定頁的「已封存帳戶」中復原。`}</p>
               </div>
             </div>
             <div className="flex gap-3">
               <button onClick={() => setItemDeleteTarget(null)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer active:scale-[0.97] transition-transform`}>取消</button>
               <button onClick={confirmItemDelete} disabled={itemDeleting} className="flex-1 py-3 text-sm font-semibold bg-[#A24936] text-white rounded-lg hover:opacity-90 active:scale-[0.97] transition-transform cursor-pointer">
-                {itemDeleting ? "刪除中…" : "確認刪除"}
+                {itemDeleting ? "處理中…" : (itemDeleteTarget?.kind === "goal" ? "確認刪除" : "確認封存")}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 已封存帳戶：設定頁進來，列出被封存（isActive:false）的資產/負債，可一鍵復原 */}
+      {showArchivedAccounts && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className={`w-full sm:max-w-md max-h-[85vh] overflow-y-auto ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl`}>
+            <div className="flex items-center justify-between p-5 border-b border-black/[0.06] dark:border-white/[0.06] sticky top-0 bg-inherit">
+              <div className="flex items-center gap-2">
+                <Archive className="h-4 w-4" />
+                <h3 className="font-display text-base font-semibold">已封存帳戶</h3>
+              </div>
+              <button onClick={() => setShowArchivedAccounts(false)} className={`p-1.5 ${textMuted} hover:text-[#1C1F1A] dark:hover:text-white`}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5">
+              {archivedAccountsLoading ? (
+                <p className={`text-sm ${textMuted} text-center py-6`}>載入中…</p>
+              ) : archivedAccounts.length === 0 ? (
+                <p className={`text-sm ${textMuted} text-center py-6`}>目前沒有已封存的帳戶</p>
+              ) : (
+                <div className="space-y-2">
+                  {archivedAccounts.map((acc) => (
+                    <div key={acc.id} className="flex items-center justify-between p-3 rounded-xl border border-black/10 dark:border-white/10">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{acc.name}</p>
+                        <p className={`text-xs ${textMuted}`}>{acc.type === "LIABILITY" ? "負債" : "資產"}</p>
+                      </div>
+                      <button
+                        onClick={() => handleRestoreAccount(acc.id, acc.name)}
+                        disabled={restoringAccountId === acc.id}
+                        className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 hover:border-[#4F7B5E] hover:text-[#4F7B5E] transition-colors cursor-pointer"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        {restoringAccountId === acc.id ? "復原中…" : "復原"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

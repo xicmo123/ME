@@ -5,7 +5,7 @@ import { Spot } from '@binance/connector';
 import { decrypt } from '@/lib/crypto';
 import { getUserIdFromRequest } from '@/lib/auth';
 import { isTrustedCronRequest } from '@/lib/cron-auth';
-import { getEntitlementsForUser } from '@/lib/entitlements';
+import { getManualSyncStatusForUser } from '@/lib/entitlements';
 import { prisma } from '@/lib/prisma';
 
 // cron（每 10 分鐘自動更新）只更新 Pro 使用者的帳戶；Free 使用者只能手動同步。
@@ -287,18 +287,17 @@ export async function GET(request: NextRequest) {
   // Free 方案：即時股價自動更新（10 分鐘 cron）是 Pro 專屬，Free 只能手動同步，
   // 且每 4 小時最多手動同步 3 次；Pro 不受此限制。
   if (!isCron && requestUserId) {
-    const entitlements = await getEntitlementsForUser(requestUserId);
-    if (entitlements.manualSyncLimitPer4Hours != null) {
-      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
-      const recentSyncCount = await prisma.syncLog.count({
-        where: { userId: requestUserId, syncedAt: { gt: fourHoursAgo } },
-      });
-      if (recentSyncCount >= entitlements.manualSyncLimitPer4Hours) {
-        return NextResponse.json(
-          { message: `免費方案每 4 小時最多手動同步 ${entitlements.manualSyncLimitPer4Hours} 次，升級 Pro 解鎖每 10 分鐘自動即時更新股價。`, code: "UPGRADE_REQUIRED", feature: "autoSync" },
-          { status: 402 }
-        );
-      }
+    const syncStatus = await getManualSyncStatusForUser(requestUserId);
+    if (syncStatus.limit != null && syncStatus.remaining === 0) {
+      return NextResponse.json(
+        {
+          message: `免費方案每 4 小時最多手動同步 ${syncStatus.limit} 次，升級 Pro 解鎖每 10 分鐘自動即時更新股價。`,
+          code: "UPGRADE_REQUIRED",
+          feature: "autoSync",
+          resetAt: syncStatus.resetAt,
+        },
+        { status: 402 }
+      );
     }
     await prisma.syncLog.create({ data: { userId: requestUserId } }).catch(() => {});
   }

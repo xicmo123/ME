@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X } from "lucide-react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X, Archive } from "lucide-react";
 import { isNative } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -47,6 +47,7 @@ export function SettingsTab({
   dataHealth,
   handleSyncPrices,
   syncing,
+  syncStatus,
   exchangeRate,
   setShowHistoryForm,
   handleExportCsv,
@@ -70,6 +71,7 @@ export function SettingsTab({
   handleAppleUnlink,
   handleLogout,
   setShowDeleteConfirm,
+  handleOpenArchivedAccounts,
 }: {
   surface: string;
   sectionLabel: string;
@@ -81,6 +83,7 @@ export function SettingsTab({
   dataHealth: { lastSync: Date | null; syncErrors: number };
   handleSyncPrices: () => void;
   syncing: boolean;
+  syncStatus: { limit: number | null; used: number; remaining: number | null; resetAt: string | null } | null;
   exchangeRate: number | null;
   setShowHistoryForm: (v: boolean) => void;
   handleExportCsv: () => void;
@@ -104,11 +107,23 @@ export function SettingsTab({
   handleAppleUnlink: () => void;
   handleLogout: () => void;
   setShowDeleteConfirm: (v: boolean) => void;
+  handleOpenArchivedAccounts: () => void;
 }) {
   const [showPlanDetails, setShowPlanDetails] = useState(false);
   const isPro = currentUser?.entitlements?.isPro ?? false;
   const heroTheme = isDarkMode ? "noir" : "cream";
   const hero = HERO_THEMES[heroTheme];
+
+  const syncOutOfQuota = syncStatus?.remaining === 0;
+  const syncResetLabel = (() => {
+    if (!syncStatus?.resetAt) return null;
+    const diffMs = new Date(syncStatus.resetAt).getTime() - Date.now();
+    if (diffMs <= 0) return "隨時";
+    const totalMinutes = Math.ceil(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours > 0 ? `${hours} 小時 ${minutes} 分後` : `${minutes} 分後`;
+  })();
 
   function handleSelectPlan(planTitle: string) {
     showToast(`${planTitle}付款功能即將推出，敬請期待`, "success");
@@ -127,7 +142,7 @@ export function SettingsTab({
         <Crown className="absolute -right-3 -bottom-3 h-24 w-24 opacity-[0.12]" style={{ color: hero.text }} />
         <div className="relative flex items-center gap-2 mb-2">
           <span className="font-display text-base font-bold tracking-tight">Zeno</span>
-          <span className="font-mono-ledger text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
+          <span className="font-mono-ledger text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
         </div>
         <p className="relative text-[15px] font-bold leading-snug max-w-[85%]">
           {isPro ? "你已解鎖 Zeno Pro，感謝支持！" : "升級成 Zeno Pro 版"}
@@ -171,13 +186,19 @@ export function SettingsTab({
           </span>
         </div>
         <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
-        <button onClick={handleSyncPrices} disabled={syncing} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+        <button onClick={handleSyncPrices} disabled={syncing || syncOutOfQuota} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
           <div className="flex items-center gap-3">
             <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} style={{ color: gold }} />
             <div className="text-left">
               <span className="text-sm font-medium block">更新價格</span>
               {!isPro && (
-                <span className={`text-[11px] ${textMuted}`}>免費方案每 4 小時最多手動同步 {currentUser?.entitlements?.manualSyncLimitPer4Hours ?? 3} 次；升級 Pro 享每 10 分鐘自動更新</span>
+                <span className={`text-[11px] ${textMuted}`}>
+                  {syncOutOfQuota
+                    ? `已用完本次額度，${syncResetLabel ?? "稍後"}恢復`
+                    : syncStatus?.remaining != null
+                      ? `剩餘次數：${syncStatus.remaining}/${syncStatus.limit} 次（每 4 小時重置）`
+                      : `免費方案每 4 小時最多手動同步 ${currentUser?.entitlements?.manualSyncLimitPer4Hours ?? 3} 次；升級 Pro 享每 10 分鐘自動更新`}
+                </span>
               )}
             </div>
           </div>
@@ -202,6 +223,15 @@ export function SettingsTab({
             <span className={`text-xs ${textMuted}`}>資產清單＋歷史</span>
           </button>
         </div>
+        <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
+          <button onClick={handleOpenArchivedAccounts} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+            <div className="flex items-center gap-3">
+              <Archive className="h-4 w-4" style={{ color: gold }} />
+              <span className="text-sm font-medium">已封存帳戶</span>
+            </div>
+            <ChevronRight className={`h-4 w-4 ${textMuted}`} />
+          </button>
+        </div>
       </div>
       <div className={`${surface} rounded-2xl overflow-hidden`}>
         <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
@@ -215,7 +245,7 @@ export function SettingsTab({
               <span className={`text-xs ${textMuted}`}>開啟後進入 App 需先驗證</span>
             </div>
           </div>
-          {isNative() ? <Switch on={bioEnabled} /> : <span className={`text-[10px] font-bold ${textMuted}`}>APP ONLY</span>}
+          {isNative() ? <Switch on={bioEnabled} /> : <span className={`text-xs font-bold ${textMuted}`}>APP ONLY</span>}
         </button>
         <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
           <button onClick={() => isNative() && setNotifyExpanded((v) => !v)} disabled={!isNative()} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
@@ -275,7 +305,7 @@ export function SettingsTab({
               }}
               disabled={!isNative()}
             >
-              {isNative() ? <Switch on={dailyReminderEnabled} /> : <span className={`text-[10px] font-bold ${textMuted}`}>APP ONLY</span>}
+              {isNative() ? <Switch on={dailyReminderEnabled} /> : <span className={`text-xs font-bold ${textMuted}`}>APP ONLY</span>}
             </button>
           </div>
         </div>
@@ -335,7 +365,7 @@ export function SettingsTab({
       </div>
       <div className="rounded-2xl overflow-hidden border border-[#A24936]/25 bg-[#A24936]/[0.03]">
         <div className="px-4 py-2 border-b border-[#A24936]/15">
-          <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#A24936]">危險操作</p>
+          <p className="text-xs font-bold tracking-[0.18em] uppercase text-[#A24936]">危險操作</p>
         </div>
         <button onClick={() => setShowDeleteConfirm(true)} className="w-full flex items-center p-4 gap-3 hover:bg-[#A24936]/5 transition-colors">
           <AlertTriangle className="h-4 w-4 text-[#A24936]" />
@@ -365,7 +395,7 @@ export function SettingsTab({
                 <Crown className="absolute -right-3 -bottom-3 h-20 w-20 opacity-[0.12]" style={{ color: hero.text }} />
                 <div className="relative flex items-center gap-2 mb-1.5">
                   <span className="font-display text-sm font-bold tracking-tight">Zeno</span>
-                  <span className="font-mono-ledger text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
+                  <span className="font-mono-ledger text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: hero.chipBtnBg }}>PRO</span>
                 </div>
                 <p className="relative text-sm font-bold">{isPro ? "你已經是 Zeno Pro 版" : "升級成 Zeno Pro 版"}</p>
                 <p className="relative text-xs opacity-75 mt-0.5">{isPro ? "感謝支持，所有進階功能已解鎖" : "無限帳戶、無限目標，完整掌控你的資產"}</p>
@@ -375,9 +405,9 @@ export function SettingsTab({
                 <p className={`${sectionLabel} mb-2`}>方案比較</p>
                 <div className={`${surface} border border-black/[0.06] dark:border-white/[0.06] rounded-xl overflow-hidden`}>
                   <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
-                    <span className={`text-[10px] font-bold ${textMuted}`} />
-                    <span className={`text-[10px] font-bold ${textMuted} text-center`}>免費版</span>
-                    <span className="text-[10px] font-bold text-center" style={{ color: gold }}>PRO 版</span>
+                    <span className={`text-xs font-bold ${textMuted}`} />
+                    <span className={`text-xs font-bold ${textMuted} text-center`}>免費版</span>
+                    <span className="text-xs font-bold text-center" style={{ color: gold }}>PRO 版</span>
                   </div>
                   {PLAN_COMPARISON.map((row, i) => (
                     <div key={row.label} className={`grid grid-cols-[1fr_auto_auto] gap-x-3 px-4 py-2.5 items-center ${i > 0 ? "border-t border-black/[0.05] dark:border-white/[0.05]" : ""}`}>
@@ -403,7 +433,7 @@ export function SettingsTab({
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold">{plan.title}</span>
                             {"badge" in plan && plan.badge && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: `${gold}1A`, color: gold }}>{plan.badge}</span>
+                              <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ background: `${gold}1A`, color: gold }}>{plan.badge}</span>
                             )}
                           </div>
                           <span className={`text-xs ${textMuted}`}>升級後立即解鎖所有 Pro 功能</span>

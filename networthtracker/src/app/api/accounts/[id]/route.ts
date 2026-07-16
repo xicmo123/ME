@@ -188,3 +188,23 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   return NextResponse.json(updatedAccount, { status: 200 })
 }
+
+// PATCH { action: "restore" } → 從「已封存帳戶」列表取消封存，isActive 改回 true
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserIdFromRequest(request)
+  if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 })
+
+  const { id } = await params
+  const body = await request.json().catch(() => null)
+  if (!body || body.action !== "restore") return NextResponse.json({ message: "Invalid action." }, { status: 400 })
+
+  const existingAccount = await prisma.account.findFirst({ where: { id, userId } })
+  if (!existingAccount) return NextResponse.json({ message: "Account not found." }, { status: 404 })
+
+  const updatedAccount = await prisma.account.update({
+    where: { id },
+    data: { isActive: true },
+  })
+
+  return NextResponse.json(updatedAccount, { status: 200 })
+}

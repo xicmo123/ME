@@ -61,8 +61,12 @@ export async function GET(request: NextRequest) {
   const userId = getUserIdFromRequest(request);
   if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
 
+  // ?archived=true → 回傳已封存（isActive:false）的帳戶清單，給「已封存帳戶」列表用；
+  // 一般情況（首頁資產清單、淨值計算）都只看 isActive:true。
+  const isArchivedView = request.nextUrl.searchParams.get("archived") === "true";
+
   const accounts = await prisma.account.findMany({
-    where: { isActive: true, userId },
+    where: { isActive: !isArchivedView, userId },
     orderBy: { createdAt: "desc" },
   });
 

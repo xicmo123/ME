@@ -178,7 +178,7 @@ export default function AdminPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-semibold">{user.email}</p>
-                        <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${user.subscriptionTier === "PRO" ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
+                        <span className={`text-xs font-bold tracking-wider uppercase px-2 py-0.5 rounded ${user.subscriptionTier === "PRO" ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
                           {user.subscriptionTier === "PRO" ? "PRO" : "FREE"}
                         </span>
                       </div>
@@ -225,7 +225,7 @@ export default function AdminPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-xl font-bold">{selectedUser.email}</h2>
-                    <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${selectedUser.subscriptionTier === "PRO" ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
+                    <span className={`text-xs font-bold tracking-wider uppercase px-2 py-0.5 rounded ${selectedUser.subscriptionTier === "PRO" ? "bg-[#B8933C]/15 text-[#B8933C]" : "bg-black/5 dark:bg-white/10 text-[#6B7066] dark:text-[#8A8F82]"}`}>
                       {selectedUser.subscriptionTier === "PRO" ? "PRO" : "FREE"}
                     </span>
                   </div>
