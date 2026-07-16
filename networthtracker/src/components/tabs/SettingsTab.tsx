@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X, Archive } from "lucide-react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, Crown, X, Archive, FileText, Shield } from "lucide-react";
 import { isNative, startOAuth } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -362,6 +362,25 @@ export function SettingsTab({
           <LogOut className="h-4 w-4 text-[#A24936]" />
           <span className="text-sm font-medium text-[#A24936]">登出</span>
         </button>
+      </div>
+      <div className={`${surface} rounded-2xl overflow-hidden`}>
+        <div className="px-4 py-2 border-b border-black/[0.06] dark:border-white/[0.06]">
+          <p className={sectionLabel}>關於</p>
+        </div>
+        <a href="/privacy" className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors border-b border-black/[0.06] dark:border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <Shield className="h-4 w-4" style={{ color: gold }} />
+            <span className="text-sm font-medium">隱私權政策</span>
+          </div>
+          <ChevronRight className={`h-4 w-4 ${textMuted}`} />
+        </a>
+        <a href="/terms" className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+          <div className="flex items-center gap-3">
+            <FileText className="h-4 w-4" style={{ color: gold }} />
+            <span className="text-sm font-medium">服務條款</span>
+          </div>
+          <ChevronRight className={`h-4 w-4 ${textMuted}`} />
+        </a>
       </div>
       <div className="rounded-2xl overflow-hidden border border-[#A24936]/25 bg-[#A24936]/[0.03]">
         <div className="px-4 py-2 border-b border-[#A24936]/15">

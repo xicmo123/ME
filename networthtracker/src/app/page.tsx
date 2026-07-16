@@ -473,6 +473,15 @@ export default function HomePage() {
     }).catch(() => { });
   }, [setTheme]);
 
+  // 開了 Face ID 鎖卻只在「開啟 App」那一刻鎖一次，切到背景再切回來完全不會重新要求解鎖，
+  // 等於鎖形同虛設——App 進背景就重新上鎖，回到前景才需要再驗證一次
+  useEffect(() => {
+    if (!bioEnabled || !isNative()) return;
+    const handler = () => { if (document.hidden) setBioLocked(true); };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [bioEnabled]);
+
   useEffect(() => {
     if (isAuthenticated) {
       void (async () => {
@@ -484,12 +493,14 @@ export default function HomePage() {
             if (data?.processed?.length) showToast(`已自動記錄 ${data.processed.length} 筆本月定期扣款`);
           }
         } catch { }
-        await Promise.allSettled([fetchAccounts(), fetchTransactions(), fetchExchangeRate(), fetchGoals(), fetchSyncStatus()]);
+        const [accountsOk] = await Promise.all([fetchAccounts(), fetchTransactions(), fetchExchangeRate(), fetchGoals(), fetchSyncStatus()]);
         setAccountsLoaded(true);
+        if (!accountsOk) showToast("資產資料讀取失敗，目前畫面可能不是最新狀態", "error");
         // 每次進入 App 都記錄「今天」的淨資產快照，讓歷史逐日累積（否則走勢圖只有今天一個點）
         await fetch("/api/history/snapshot").catch(() => { });
-        await fetchHistory();
+        const historyOk = await fetchHistory();
         setHistoryLoaded(true);
+        if (!historyOk) showToast("歷史走勢讀取失敗，請稍後再試", "error");
       })();
     }
   }, [isAuthenticated]);
@@ -681,8 +692,8 @@ export default function HomePage() {
     } catch { setAuthError("網路錯誤，請稍後再試"); } finally { setAuthLoading(false); }
   }
 
-  async function fetchAccounts() { try { const res = await fetch("/api/accounts"); if (res.ok) setAccounts(await res.json()); } catch (e) { } }
-  async function fetchHistory() { try { const res = await fetch("/api/history"); if (res.ok) setHistory(await res.json()); } catch (e) { } }
+  async function fetchAccounts() { try { const res = await fetch("/api/accounts"); if (res.ok) { setAccounts(await res.json()); return true; } return false; } catch (e) { return false; } }
+  async function fetchHistory() { try { const res = await fetch("/api/history"); if (res.ok) { setHistory(await res.json()); return true; } return false; } catch (e) { return false; } }
   async function fetchTransactions() { try { const res = await fetch("/api/transactions"); if (res.ok) setTransactions(await res.json()); } catch (e) { } }
   async function fetchExchangeRate() { try { const res = await fetch("/api/exchange-rate", { cache: "no-store" }); if (res.ok) { const d = await res.json(); if (d?.rate) setExchangeRate(d.rate); } } catch (e) { } }
 
