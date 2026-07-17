@@ -1,9 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeGoogleCode, fetchGoogleUserInfo } from "@/lib/googleAuth";
-import { createToken, getUserIdFromRequest } from "@/lib/auth";
+import { createNativeExchangeToken, createToken, getUserIdFromRequest } from "@/lib/auth";
 import { getAppOrigin } from "@/lib/requestOrigin";
-import { buildNativeCallbackUrl, clearOAuthPlatformCookie, isNativeOAuthCallback } from "@/lib/oauthNative";
+import { buildNativeCallbackUrl, clearOAuthPlatformCookie, getOAuthLinkUserId, isNativeOAuthCallback } from "@/lib/oauthNative";
 
 import { prisma } from "@/lib/prisma";
 
@@ -38,8 +38,10 @@ export async function GET(request: NextRequest) {
       return redirectWithError(request, "此 Google 帳號的電子郵件尚未驗證");
     }
 
-    const currentUserId = getUserIdFromRequest(request);
     const isNative = isNativeOAuthCallback(request);
+    // App 版：這個 request 是在 ASWebAuthenticationSession 的獨立瀏覽情境裡發生的，
+    // 讀不到主 WKWebView 的 auth-token cookie，只能靠 route.ts 那邊先驗證過、寫進來的 oauth-link-user
+    const currentUserId = isNative ? getOAuthLinkUserId(request) : getUserIdFromRequest(request);
 
     if (currentUserId) {
       // 綁定流程：使用者已登入，把 Google 帳號綁到目前這個帳號
@@ -48,9 +50,8 @@ export async function GET(request: NextRequest) {
         return redirectWithError(request, "此 Google 帳號已綁定其他帳號");
       }
       await prisma.user.update({ where: { id: currentUserId }, data: { googleId: profile.sub } });
-      // App 版跟主要 WKWebView 共用同一份系統 cookie store，這個 request 是在 in-app 瀏覽器裡發生的，
-      // 但既有的 auth-token cookie 早就在共用的 store 裡了，不需要重新發——導回 App 的 URL scheme
-      // 只是為了觸發系統把使用者帶回前景、關掉 in-app 瀏覽器分頁
+      // 綁定流程不需要換發 auth-token——使用者本來就已經登入，主 WKWebView 的 auth-token
+      // 沒有變化，導回 App 的 URL scheme 純粹是把使用者帶回前景
       const url = isNative ? buildNativeCallbackUrl({ linked: "google" }) : new URL("/?linked=google", getAppOrigin(request)).toString();
       const response = NextResponse.redirect(url);
       response.cookies.set("google-oauth-state", "", { maxAge: 0, path: "/" });
@@ -67,11 +68,20 @@ export async function GET(request: NextRequest) {
         : await prisma.user.create({ data: { email: profile.email, googleId: profile.sub, emailVerified: true } });
     }
 
+    if (isNative) {
+      // App 版：這個回應是在 ASWebAuthenticationSession 的獨立瀏覽情境裡發生的，設 auth-token
+      // cookie 在這裡沒用——主 WKWebView 讀不到。改帶一個短效交換碼回 App，讓主 WKWebView
+      // 自己打 /api/auth/native-exchange 換發，Set-Cookie 才會進到正確的 cookie store。
+      const exchange = createNativeExchangeToken(user.id);
+      const url = buildNativeCallbackUrl({ exchange });
+      const response = NextResponse.redirect(url);
+      response.cookies.set("google-oauth-state", "", { maxAge: 0, path: "/" });
+      clearOAuthPlatformCookie(response);
+      return response;
+    }
+
     const token = createToken(user.id);
-    // auth-token 這裡設下去，就算等一下導去 App 的自訂 URL scheme，因為跟主要 WKWebView
-    // 共用同一份系統 cookie store，App 主畫面下一次打 API 就讀得到這個 cookie，不需要另外設計
-    // 一次性換發碼——導回 App 的 URL scheme 純粹是為了讓系統把使用者從 in-app 瀏覽器帶回 App。
-    const url = isNative ? buildNativeCallbackUrl({}) : new URL("/", getAppOrigin(request)).toString();
+    const url = new URL("/", getAppOrigin(request)).toString();
     const response = NextResponse.redirect(url);
     response.cookies.set("auth-token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 7, path: "/" });
     response.cookies.set("google-oauth-state", "", { maxAge: 0, path: "/" });

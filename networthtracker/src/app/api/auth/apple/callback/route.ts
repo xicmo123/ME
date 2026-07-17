@@ -1,9 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeAppleCode, verifyAppleIdToken } from "@/lib/appleAuth";
-import { createToken, getUserIdFromRequest } from "@/lib/auth";
+import { createNativeExchangeToken, createToken, getUserIdFromRequest } from "@/lib/auth";
 import { getAppOrigin } from "@/lib/requestOrigin";
-import { buildNativeCallbackUrl, clearOAuthPlatformCookie, isNativeOAuthCallback } from "@/lib/oauthNative";
+import { buildNativeCallbackUrl, clearOAuthPlatformCookie, getOAuthLinkUserId, isNativeOAuthCallback } from "@/lib/oauthNative";
 
 import { prisma } from "@/lib/prisma";
 
@@ -43,8 +43,10 @@ export async function POST(request: NextRequest) {
       return redirectWithError(request, "此 Apple 帳號的電子郵件尚未驗證");
     }
 
-    const currentUserId = getUserIdFromRequest(request);
     const isNative = isNativeOAuthCallback(request);
+    // App 版：這個 request 是在 ASWebAuthenticationSession 的獨立瀏覽情境裡發生的，
+    // 讀不到主 WKWebView 的 auth-token cookie，只能靠 route.ts 那邊先驗證過、寫進來的 oauth-link-user
+    const currentUserId = isNative ? getOAuthLinkUserId(request) : getUserIdFromRequest(request);
 
     if (currentUserId) {
       // 綁定流程：使用者已登入，把 Apple 帳號綁到目前這個帳號
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
         return redirectWithError(request, "此 Apple 帳號已綁定其他帳號");
       }
       await prisma.user.update({ where: { id: currentUserId }, data: { appleId: claims.sub } });
+      // 綁定流程不需要換發 auth-token——使用者本來就已經登入，導回 App 的 URL scheme 純粹是把使用者帶回前景
       const url = isNative ? buildNativeCallbackUrl({ linked: "apple" }) : new URL("/?linked=apple", getAppOrigin(request)).toString();
       const response = NextResponse.redirect(url, { status: 303 });
       response.cookies.set("apple-oauth-state", "", { maxAge: 0, path: "/" });
@@ -69,8 +72,19 @@ export async function POST(request: NextRequest) {
         : await prisma.user.create({ data: { email, appleId: claims.sub, emailVerified: true } });
     }
 
+    if (isNative) {
+      // App 版：設 auth-token cookie 在這個獨立瀏覽情境裡沒用，改帶短效交換碼回 App，
+      // 讓主 WKWebView 自己打 /api/auth/native-exchange 換發
+      const exchange = createNativeExchangeToken(user.id);
+      const url = buildNativeCallbackUrl({ exchange });
+      const response = NextResponse.redirect(url, { status: 303 });
+      response.cookies.set("apple-oauth-state", "", { maxAge: 0, path: "/" });
+      clearOAuthPlatformCookie(response);
+      return response;
+    }
+
     const token = createToken(user.id);
-    const url = isNative ? buildNativeCallbackUrl({}) : new URL("/", getAppOrigin(request)).toString();
+    const url = new URL("/", getAppOrigin(request)).toString();
     const response = NextResponse.redirect(url, { status: 303 });
     response.cookies.set("auth-token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 7, path: "/" });
     response.cookies.set("apple-oauth-state", "", { maxAge: 0, path: "/" });

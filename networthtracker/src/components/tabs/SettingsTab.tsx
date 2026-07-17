@@ -380,7 +380,7 @@ export function SettingsTab({
                 <span className={`text-xs ${textMuted}`}>✓</span>
               )
             ) : (
-              <button type="button" onClick={() => startOAuth("google")} className="text-xs font-semibold" style={{ color: gold }}>綁定</button>
+              <button type="button" onClick={() => startOAuth("google", { link: true })} className="text-xs font-semibold" style={{ color: gold }}>綁定</button>
             )}
           </div>
         )}
@@ -402,7 +402,7 @@ export function SettingsTab({
                 <span className={`text-xs ${textMuted}`}>✓</span>
               )
             ) : (
-              <button type="button" onClick={() => startOAuth("apple")} className="text-xs font-semibold" style={{ color: gold }}>綁定</button>
+              <button type="button" onClick={() => startOAuth("apple", { link: true })} className="text-xs font-semibold" style={{ color: gold }}>綁定</button>
             )}
           </div>
         )}

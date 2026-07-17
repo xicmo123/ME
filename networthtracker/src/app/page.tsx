@@ -9,7 +9,7 @@ import { HERO_THEMES } from "@/lib/hero-theme";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleIcon, AppleIcon, CurrencyFlag } from "@/components/icons";
 import { SettingsTab } from "@/components/tabs/SettingsTab";
-import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder, startOAuth, initDeepLinkListener, configurePurchases } from "@/lib/native";
+import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder, startOAuth, configurePurchases } from "@/lib/native";
 
 const LEGACY_DARK_MODE_KEY = "networth-dark-mode";
 
@@ -403,7 +403,6 @@ export default function HomePage() {
 
   useEffect(() => {
     setMounted(true);
-    initDeepLinkListener();
 
     // 舊版把深色模式存在 networth-dark-mode（"true"/"false"），改用 next-themes 後
     // 交由它自己的 storageKey 管理；這裡做一次性搬遷，讓舊使用者的偏好不會被重置成 system。
