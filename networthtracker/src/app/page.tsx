@@ -7,7 +7,7 @@ import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, R
 import { TW_BANKS } from "@/lib/tw-banks";
 import { HERO_THEMES } from "@/lib/hero-theme";
 import { Skeleton } from "@/components/ui/skeleton";
-import { GoogleIcon, AppleIcon, CurrencyFlag } from "@/components/icons";
+import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { SettingsTab } from "@/components/tabs/SettingsTab";
 import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder, startOAuth, configurePurchases } from "@/lib/native";
 
@@ -2295,10 +2295,7 @@ export default function HomePage() {
                   ) : (
                     <div>
                       <label className={`block text-xs mb-2 ${sectionLabel}`}>幣別</label>
-                      <div className="flex items-center gap-2">
-                        <CurrencyFlag currency={formData.currency} className="text-lg shrink-0" />
-                        <select value={formData.currency} onChange={(e) => setFormData({ ...formData, currency: e.target.value })} className={inputCls}>{currencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-                      </div>
+                      <select value={formData.currency} onChange={(e) => setFormData({ ...formData, currency: e.target.value })} className={inputCls}>{currencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
                     </div>
                   )}
                   {!showApiFields && (
