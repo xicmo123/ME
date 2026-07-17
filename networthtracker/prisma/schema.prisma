@@ -131,6 +131,7 @@ model Account {
   loanTermMonths Int?           // 總期數（月），非必填；只用來顯示「已繳/總期數」進度
   loanStartDate DateTime?       // 貸款起算日（=第 1 期扣款日），非必填；有填才能算出「已繳幾期」，不然只能用交易紀錄筆數概算
   isActive      Boolean         @default(true)
+  archivedAt    DateTime?       // 封存（isActive:false）的時間；用來判斷 60 天後是否該永久刪除
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 

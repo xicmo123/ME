@@ -172,24 +172,37 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({ ...sanitizedAccount, hasApiCredentials: Boolean(updatedAccount.apiKey && updatedAccount.apiSecret) }, { status: 200 })
 }
 
+// DELETE：一般呼叫是「封存」（isActive:false，記錄 archivedAt，資料保留 60 天）。
+// 加上 ?permanent=true 才是「永久刪除」，且只允許對已經封存的帳戶執行，避免誤刪還在使用中的帳戶。
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = getUserIdFromRequest(request)
   if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 })
 
   const { id } = await params
+  const isPermanent = request.nextUrl.searchParams.get("permanent") === "true"
 
   const existingAccount = await prisma.account.findFirst({ where: { id, userId } })
   if (!existingAccount) return NextResponse.json({ message: "Account not found." }, { status: 404 })
 
+  if (isPermanent) {
+    if (existingAccount.isActive) {
+      return NextResponse.json({ message: "請先封存帳戶，才能永久刪除。" }, { status: 400 })
+    }
+    // Transaction.account 是 onDelete: Cascade，交易紀錄會一併刪除；
+    // Transaction.loanAccount（loanAccountId）是 onDelete: SetNull，其他帳戶指向這筆貸款帳戶的扣款紀錄會被清空關聯而不是報錯。
+    await prisma.account.delete({ where: { id } })
+    return NextResponse.json({ ok: true }, { status: 200 })
+  }
+
   const updatedAccount = await prisma.account.update({
     where: { id },
-    data: { isActive: false },
+    data: { isActive: false, archivedAt: new Date() },
   })
 
   return NextResponse.json(updatedAccount, { status: 200 })
 }
 
-// PATCH { action: "restore" } → 從「已封存帳戶」列表取消封存，isActive 改回 true
+// PATCH { action: "restore" } → 從「已封存帳戶」列表取消封存，isActive 改回 true，清掉 archivedAt
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = getUserIdFromRequest(request)
   if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 })
@@ -203,7 +216,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const updatedAccount = await prisma.account.update({
     where: { id },
-    data: { isActive: true },
+    data: { isActive: true, archivedAt: null },
   })
 
   return NextResponse.json(updatedAccount, { status: 200 })

@@ -165,6 +165,8 @@ export default function HomePage() {
   const [archivedAccounts, setArchivedAccounts] = useState<any[]>([]);
   const [archivedAccountsLoading, setArchivedAccountsLoading] = useState(false);
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
+  const [deletingArchivedId, setDeletingArchivedId] = useState<string | null>(null);
+  const [archivedDeleteTarget, setArchivedDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testConnectionResult, setTestConnectionResult] = useState<{ ok: boolean; message: string } | null>(null);
   // 降級提醒：Pro 掉回 Free 那次 session 跳出，列出哪些資產/負債/目標被鎖定，讓使用者選擇升級解鎖或直接刪除
@@ -805,6 +807,21 @@ export default function HomePage() {
     } catch (e) {
       showToast("復原失敗，請再試一次", "error");
     } finally { setRestoringAccountId(null); }
+  }
+
+  async function handleDeleteArchivedAccount() {
+    if (!archivedDeleteTarget) return;
+    const { id: accountId, name } = archivedDeleteTarget;
+    setDeletingArchivedId(accountId);
+    try {
+      const res = await fetch(`/api/accounts/${accountId}?permanent=true`, { method: "DELETE" });
+      if (!res.ok) throw new Error("delete failed");
+      setArchivedAccounts((prev) => prev.filter((a) => a.id !== accountId));
+      setArchivedDeleteTarget(null);
+      showToast(`已永久刪除「${name}」`);
+    } catch (e) {
+      showToast("刪除失敗，請再試一次", "error");
+    } finally { setDeletingArchivedId(null); }
   }
 
   async function handleTestConnection() {
@@ -2769,25 +2786,61 @@ export default function HomePage() {
               ) : archivedAccounts.length === 0 ? (
                 <p className={`text-sm ${textMuted} text-center py-6`}>目前沒有已封存的帳戶</p>
               ) : (
-                <div className="space-y-2">
-                  {archivedAccounts.map((acc) => (
-                    <div key={acc.id} className="flex items-center justify-between p-3 rounded-xl border border-black/10 dark:border-white/10">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{acc.name}</p>
-                        <p className={`text-xs ${textMuted}`}>{acc.type === "LIABILITY" ? "負債" : "資產"}</p>
+                <>
+                  <p className={`text-xs ${textMuted} mb-3`}>封存滿 60 天的帳戶及其歷史紀錄會被永久刪除，如需保留請及早復原。</p>
+                  <div className="space-y-2">
+                    {archivedAccounts.map((acc) => (
+                      <div key={acc.id} className="flex items-center justify-between p-3 rounded-xl border border-black/10 dark:border-white/10">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{acc.name}</p>
+                          <p className={`text-xs ${textMuted}`}>{acc.type === "LIABILITY" ? "負債" : "資產"}</p>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-2">
+                          <button
+                            onClick={() => handleRestoreAccount(acc.id, acc.name)}
+                            disabled={restoringAccountId === acc.id || deletingArchivedId === acc.id}
+                            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 hover:border-[#4F7B5E] hover:text-[#4F7B5E] transition-colors cursor-pointer"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            {restoringAccountId === acc.id ? "復原中…" : "復原"}
+                          </button>
+                          <button
+                            onClick={() => setArchivedDeleteTarget({ id: acc.id, name: acc.name })}
+                            disabled={restoringAccountId === acc.id || deletingArchivedId === acc.id}
+                            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 hover:border-[#A24936] hover:text-[#A24936] transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            刪除
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => handleRestoreAccount(acc.id, acc.name)}
-                        disabled={restoringAccountId === acc.id}
-                        className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 hover:border-[#4F7B5E] hover:text-[#4F7B5E] transition-colors cursor-pointer"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        {restoringAccountId === acc.id ? "復原中…" : "復原"}
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 永久刪除已封存帳戶確認 */}
+      {archivedDeleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl p-6`}>
+            <div className="flex items-start gap-4 mb-5">
+              <div className="p-2 bg-[#A24936]/10 rounded-xl shrink-0">
+                <AlertTriangle className="h-6 w-6 text-[#A24936]" />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold text-[#A24936]">永久刪除帳戶</h3>
+                <p className={`text-sm ${textMuted} mt-1 leading-relaxed`}>確定要永久刪除「{archivedDeleteTarget.name}」嗎？所有相關交易紀錄將一併刪除，此操作無法復原。</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setArchivedDeleteTarget(null)} className={`flex-1 py-3 text-sm font-semibold ${textMuted} border border-black/10 dark:border-white/10 rounded-lg cursor-pointer`}>取消</button>
+              <button onClick={handleDeleteArchivedAccount} disabled={deletingArchivedId === archivedDeleteTarget.id} className="flex-1 py-3 text-sm font-semibold bg-[#A24936] text-white rounded-lg hover:opacity-90 transition-all cursor-pointer">
+                {deletingArchivedId === archivedDeleteTarget.id ? "刪除中…" : "確認刪除"}
+              </button>
             </div>
           </div>
         </div>

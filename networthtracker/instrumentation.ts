@@ -69,5 +69,19 @@ export async function register() {
     { timezone: "Asia/Taipei" }
   );
 
-  console.log("[Cron] 排程已註冊：每 10 分鐘同步價格、每天 00:05 套用定期扣款、每天 23:59 記錄淨資產快照");
+  // 每天 03:00（台灣時間）：永久刪除封存滿 60 天的帳戶
+  cron.default.schedule(
+    "0 3 * * *",
+    async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/accounts/purge-archived`, { headers: cronHeaders() });
+        console.log(`[Cron] 封存帳戶清除完成，status: ${res.status}`);
+      } catch (error) {
+        console.error("[Cron] 封存帳戶清除失敗:", error);
+      }
+    },
+    { timezone: "Asia/Taipei" }
+  );
+
+  console.log("[Cron] 排程已註冊：每 10 分鐘同步價格、每天 00:05 套用定期扣款、每天 03:00 清除封存滿 60 天的帳戶、每天 23:59 記錄淨資產快照");
 }
