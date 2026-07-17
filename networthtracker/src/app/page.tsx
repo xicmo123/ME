@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
-import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw, Crown, Home, Plane, Car, GraduationCap, PiggyBank, Heart, Briefcase, Target } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw, Crown, Home, Plane, Car, GraduationCap, PiggyBank, Heart, Briefcase, Target, Landmark, Bitcoin, Building2, HandCoins, Receipt, CreditCard } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -37,6 +37,13 @@ const currencyOptions = [
   { value: "SGD", label: "🇸🇬 SGD" },
 ];
 const categoryLabelMap: Record<string, string> = categoryOptions.reduce((acc, curr) => ({ ...acc, [curr.value]: curr.label }), {});
+// 類別圖示：單色線條 icon，不用國旗——四個國家的股票類別共用同一個圖示，靠顏色（各組的 group.color）分辨，不是靠國旗
+const CATEGORY_ICONS: Record<string, typeof Home> = {
+  CASH: Wallet, BANK_ACCOUNT: Landmark,
+  TAIWAN_STOCK: TrendingUp, US_STOCK: TrendingUp, JAPAN_STOCK: TrendingUp, KOREA_STOCK: TrendingUp,
+  CRYPTO: Bitcoin, FIXED_ASSET: Building2, RECEIVABLE: HandCoins,
+  PAYABLE: Receipt, MORTGAGE: Home, CAR_LOAN: Car, CREDIT_LOAN: CreditCard,
+};
 const fixedCurrencyByCategory: Record<string, string> = { TAIWAN_STOCK: "TWD", US_STOCK: "USD", CRYPTO: "USD", JAPAN_STOCK: "JPY", KOREA_STOCK: "KRW" };
 const symbolRequiredCategories = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"];
 const fixedCurrencyCategories = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"];
@@ -1726,9 +1733,16 @@ export default function HomePage() {
                           {card.account.isLocked && <LockedOverlay onClick={() => setActiveTab("settings")} />}
                           <span className="absolute inset-y-0 left-0 w-1" style={{ background: group.color }} />
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold truncate">{card.title.replace(/\.TW$/i, "")}</p>
-                              <p className={`text-xs font-bold tracking-wider uppercase mt-0.5 ${textMuted}`}>{categoryLabelMap[card.category]}{showSubtitle && <span className="normal-case tracking-normal font-medium" style={{ color: gold }}> · {card.subtitle}</span>}</p>
+                            <div className="min-w-0 flex items-start gap-2.5">
+                              {(() => { const CategoryIcon = CATEGORY_ICONS[card.category] ?? Wallet; return (
+                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg" style={{ background: `${group.color}1A`, color: group.color }}>
+                                  <CategoryIcon className="h-3.5 w-3.5" strokeWidth={2} />
+                                </span>
+                              ); })()}
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold truncate">{card.title.replace(/\.TW$/i, "")}</p>
+                                <p className={`text-xs font-bold tracking-wider uppercase mt-0.5 ${textMuted}`}>{categoryLabelMap[card.category]}{showSubtitle && <span className="normal-case tracking-normal font-medium" style={{ color: gold }}> · {card.subtitle}</span>}</p>
+                              </div>
                             </div>
                             <div className="flex items-center shrink-0">
                               <button onClick={() => startEdit(card.account)} aria-label="編輯資產" className={`p-2 -m-1 ${textMuted} hover:text-[#B8933C] active:scale-90 transition-transform`}><Pencil className="h-3 w-3" /></button>
