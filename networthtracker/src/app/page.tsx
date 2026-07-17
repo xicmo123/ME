@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
-import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw, Crown } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -94,11 +94,15 @@ const GoalRing = ({ progress, size = 30, color }: { progress: number; size?: num
   const p = Math.max(0, Math.min(100, progress || 0));
   const r = 13;
   const c = 2 * Math.PI * r;
+  const achieved = p >= 100;
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" className="shrink-0 -rotate-90">
-      <circle cx="16" cy="16" r={r} fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2.5" />
-      <circle cx="16" cy="16" r={r} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - p / 100)} />
-    </svg>
+    <span className="relative inline-flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox="0 0 32 32" className="absolute inset-0 -rotate-90">
+        <circle cx="16" cy="16" r={r} fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2.5" />
+        <circle cx="16" cy="16" r={r} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - p / 100)} />
+      </svg>
+      {achieved && <Crown className="h-3.5 w-3.5" style={{ color }} fill={color} strokeWidth={1.5} />}
+    </span>
   );
 };
 
