@@ -106,6 +106,67 @@ export async function biometricVerify(reason: string): Promise<boolean> {
   }
 }
 
+// Apple 內購走 RevenueCat 代管，商品/entitlement 設定在 RevenueCat 後台，這裡只是薄薄一層
+// wrapper，呼叫端（SettingsTab）不用直接碰 Capacitor plugin。appUserID 一律帶我們自己的
+// User.id，這樣 RevenueCat 的 app_user_id 才會直接對應到資料庫的使用者，見 src/lib/revenuecat.ts。
+export async function configurePurchases(userId: string) {
+  if (!isNative()) return;
+  const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_IOS_API_KEY;
+  if (!apiKey) { console.error("NEXT_PUBLIC_REVENUECAT_IOS_API_KEY 未設定"); return; }
+  try {
+    const { Purchases } = await import("@revenuecat/purchases-capacitor");
+    await Purchases.configure({ apiKey, appUserID: userId });
+  } catch (err) {
+    console.error("configurePurchases failed", err);
+  }
+}
+
+export type PurchasePlan = { identifier: string; title: string; priceString: string; raw: any };
+
+// 回傳 RevenueCat 後台目前 offering 裡的方案列表，給升級畫面渲染用；identifier 對應到 RevenueCat
+// 的 package identifier（例如 $rc_monthly / $rc_annual / 自訂的 lifetime），跟畫面上的方案卡片配對
+export async function getPurchasePlans(): Promise<PurchasePlan[] | null> {
+  if (!isNative()) return null;
+  try {
+    const { Purchases } = await import("@revenuecat/purchases-capacitor");
+    const offerings = await Purchases.getOfferings();
+    const current = offerings.current;
+    if (!current) return null;
+    const packages = current.availablePackages ?? [];
+    return packages.map((p: any) => ({ identifier: p.identifier, title: p.product.title, priceString: p.product.priceString, raw: p }));
+  } catch (err) {
+    console.error("getPurchasePlans failed", err);
+    return null;
+  }
+}
+
+// 實際跳出 Apple 的購買確認框。回傳 true 代表購買成功；使用者自己取消時回傳 false，不當成錯誤；
+// 其他失敗（付款方式被拒等）則往外拋，讓呼叫端顯示錯誤訊息
+export async function purchasePlan(pkg: any): Promise<boolean> {
+  if (!isNative()) return false;
+  const { Purchases } = await import("@revenuecat/purchases-capacitor");
+  try {
+    await Purchases.purchasePackage({ aPackage: pkg });
+    return true;
+  } catch (err: any) {
+    if (err?.userCancelled) return false;
+    throw err;
+  }
+}
+
+// 換過裝置、或重灌 App 之後找回已購買的內容
+export async function restorePurchases(): Promise<boolean> {
+  if (!isNative()) return false;
+  try {
+    const { Purchases } = await import("@revenuecat/purchases-capacitor");
+    const { customerInfo } = await Purchases.restorePurchases();
+    return Boolean(customerInfo?.entitlements?.active?.["pro"]);
+  } catch (err) {
+    console.error("restorePurchases failed", err);
+    return false;
+  }
+}
+
 // 每日記帳提醒用的固定通知 id，跟行事曆事件的 hash id 分開，避免互相覆蓋
 const DAILY_REMINDER_NOTIFICATION_ID = 999_000_001;
 

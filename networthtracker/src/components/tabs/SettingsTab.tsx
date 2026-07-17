@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield, Lock } from "lucide-react";
-import { isNative, startOAuth } from "@/lib/native";
+import { isNative, startOAuth, getPurchasePlans, purchasePlan, restorePurchases } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
 
@@ -33,10 +33,14 @@ const PLAN_COMPARISON: { label: string; free: string; pro: string }[] = [
   { label: "年度報告", free: "—", pro: "✓" },
 ];
 
+// rcPackageId 對應到 RevenueCat 後台 offering 裡的 package identifier。$rc_monthly / $rc_annual /
+// $rc_lifetime 是 RevenueCat「預設方案類型（Monthly／Annual／Lifetime）」對應出來的固定識別碼，
+// 只要在 RevenueCat 後台建立 offering 時選這幾個預設類型，identifier 就會自動是這幾個字串——
+// 如果後台改用「自訂類型」建立，這裡要改成跟後台實際設定的 identifier 一致，否則會顯示「找不到對應方案」。
 const PRICING_PLANS = [
-  { id: "monthly", title: "月付方案", price: "NT$30", period: "／月" },
-  { id: "yearly", title: "年付方案", price: "NT$300", period: "／年", badge: "省 2 個月" },
-  { id: "lifetime", title: "買斷方案", price: "NT$599", period: "／一次付清", badge: "終身使用" },
+  { id: "monthly", title: "月付方案", price: "NT$30", period: "／月", rcPackageId: "$rc_monthly" },
+  { id: "yearly", title: "年付方案", price: "NT$300", period: "／年", badge: "省 2 個月", rcPackageId: "$rc_annual" },
+  { id: "lifetime", title: "買斷方案", price: "NT$599", period: "／一次付清", badge: "終身使用", rcPackageId: "$rc_lifetime" },
 ] as const;
 
 export function SettingsTab({
@@ -76,6 +80,7 @@ export function SettingsTab({
   setShowDeleteConfirm,
   handleOpenArchivedAccounts,
   onOpenYearReport,
+  onPurchaseSuccess,
 }: {
   surface: string;
   sectionLabel: string;
@@ -113,8 +118,10 @@ export function SettingsTab({
   setShowDeleteConfirm: (v: boolean) => void;
   handleOpenArchivedAccounts: () => void;
   onOpenYearReport: () => void;
+  onPurchaseSuccess: () => Promise<void>;
 }) {
   const [showPlanDetails, setShowPlanDetails] = useState(false);
+  const [purchasingPlanId, setPurchasingPlanId] = useState<string | null>(null);
   const isPro = currentUser?.entitlements?.isPro ?? false;
   const heroTheme = isDarkMode ? "noir" : "cream";
   const hero = HERO_THEMES[heroTheme];
@@ -130,8 +137,36 @@ export function SettingsTab({
     return hours > 0 ? `${hours} 小時 ${minutes} 分後` : `${minutes} 分後`;
   })();
 
-  function handleSelectPlan(planTitle: string) {
-    showToast(`${planTitle}付款功能即將推出，敬請期待`, "success");
+  async function handleSelectPlan(plan: (typeof PRICING_PLANS)[number]) {
+    if (!isNative()) { showToast("請在 App 內購買，網頁版暫不支援", "error"); return; }
+    if (purchasingPlanId) return;
+    setPurchasingPlanId(plan.id);
+    try {
+      const plans = await getPurchasePlans();
+      const pkg = plans?.find((p) => p.identifier === plan.rcPackageId);
+      if (!pkg) { showToast("目前找不到這個方案，請稍後再試", "error"); return; }
+      const purchased = await purchasePlan(pkg.raw);
+      if (!purchased) return; // 使用者自己取消，不用顯示錯誤
+      const res = await fetch("/api/purchases/sync", { method: "POST" });
+      if (res.ok) { showToast("升級成功，感謝支持！"); await onPurchaseSuccess(); }
+      else showToast("購買成功，但狀態同步失敗，請重新整理", "error");
+    } catch {
+      showToast("購買失敗，請稍後再試", "error");
+    } finally {
+      setPurchasingPlanId(null);
+    }
+  }
+
+  async function handleRestorePurchases() {
+    if (!isNative()) return;
+    const restored = await restorePurchases();
+    if (restored) {
+      await fetch("/api/purchases/sync", { method: "POST" }).catch(() => {});
+      await onPurchaseSuccess();
+      showToast("已還原購買紀錄");
+    } else {
+      showToast("沒有找到可還原的購買紀錄", "error");
+    }
   }
 
   return (
@@ -456,8 +491,9 @@ export function SettingsTab({
                     {PRICING_PLANS.map((plan) => (
                       <button
                         key={plan.id}
-                        onClick={() => handleSelectPlan(plan.title)}
-                        className="w-full flex items-center justify-between p-4 rounded-xl border border-black/10 dark:border-white/10 hover:border-[#B8933C] transition-colors text-left"
+                        onClick={() => handleSelectPlan(plan)}
+                        disabled={purchasingPlanId !== null}
+                        className="w-full flex items-center justify-between p-4 rounded-xl border border-black/10 dark:border-white/10 hover:border-[#B8933C] transition-colors text-left disabled:opacity-50"
                       >
                         <div>
                           <div className="flex items-center gap-2">
@@ -466,7 +502,7 @@ export function SettingsTab({
                               <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ background: `${gold}1A`, color: gold }}>{plan.badge}</span>
                             )}
                           </div>
-                          <span className={`text-xs ${textMuted}`}>升級後立即解鎖所有 Pro 功能</span>
+                          <span className={`text-xs ${textMuted}`}>{purchasingPlanId === plan.id ? "處理中…" : "升級後立即解鎖所有 Pro 功能"}</span>
                         </div>
                         <span className="font-mono-ledger text-sm font-bold whitespace-nowrap">
                           {plan.price}<span className={`text-xs font-normal ${textMuted}`}>{plan.period}</span>
@@ -474,6 +510,9 @@ export function SettingsTab({
                       </button>
                     ))}
                   </div>
+                  <button onClick={handleRestorePurchases} className="w-full text-center text-xs font-semibold mt-3 hover:underline underline-offset-2" style={{ color: gold }}>
+                    還原購買紀錄
+                  </button>
                 </div>
               )}
 

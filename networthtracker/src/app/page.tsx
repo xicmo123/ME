@@ -9,7 +9,7 @@ import { HERO_THEMES } from "@/lib/hero-theme";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleIcon, AppleIcon, CurrencyFlag } from "@/components/icons";
 import { SettingsTab } from "@/components/tabs/SettingsTab";
-import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder, startOAuth, initDeepLinkListener } from "@/lib/native";
+import { initNativeShell, setStatusBarTheme, hapticImpact, isNative, biometricVerify, syncEventReminders, scheduleDailyReminder, startOAuth, initDeepLinkListener, configurePurchases } from "@/lib/native";
 
 const LEGACY_DARK_MODE_KEY = "networth-dark-mode";
 
@@ -442,6 +442,7 @@ export default function HomePage() {
         const data = await res.json();
         setIsAuthenticated(true);
         setCurrentUser(data.user);
+        if (data.user?.id) void configurePurchases(data.user.id);
         // 沒有 webhook 通知降級，只能靠比對「上次看到的方案」跟這次抓到的方案來偵測 Pro→Free
         const nowIsPro = Boolean(data.user?.entitlements?.isPro);
         const prevTier = localStorage.getItem("zeno-last-tier");
@@ -673,6 +674,13 @@ export default function HomePage() {
         if (meRes.ok) setCurrentUser((await meRes.json()).user);
       } else { setAuthError(data.message || "發生錯誤"); }
     } catch { setAuthError("網路錯誤，請稍後再試"); } finally { setAuthLoading(false); }
+  }
+
+  async function refreshCurrentUser() {
+    try {
+      const res = await fetch("/api/auth");
+      if (res.ok) setCurrentUser((await res.json()).user);
+    } catch { }
   }
 
   async function fetchAccounts() { try { const res = await fetch("/api/accounts"); if (res.ok) { setAccounts(await res.json()); return true; } return false; } catch (e) { return false; } }
@@ -2153,6 +2161,7 @@ export default function HomePage() {
             setShowDeleteConfirm={setShowDeleteConfirm}
             handleOpenArchivedAccounts={handleOpenArchivedAccounts}
             onOpenYearReport={() => setShowYearReport(true)}
+            onPurchaseSuccess={refreshCurrentUser}
           />
         )}
       </div>
