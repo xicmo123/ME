@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield } from "lucide-react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield, Lock } from "lucide-react";
 import { isNative, startOAuth } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -28,6 +28,9 @@ const PLAN_COMPARISON: { label: string; free: string; pro: string }[] = [
   { label: "交易所自動同步", free: "—", pro: "✓" },
   { label: "CSV 報表匯出", free: "—", pro: "✓" },
   { label: "定期扣款自動記帳", free: "—", pro: "✓" },
+  { label: "走勢比較區間", free: "兩週", pro: "六個月／一年／自訂" },
+  { label: "情境模擬", free: "—", pro: "✓" },
+  { label: "年度報告", free: "—", pro: "✓" },
 ];
 
 const PRICING_PLANS = [
@@ -72,6 +75,7 @@ export function SettingsTab({
   handleLogout,
   setShowDeleteConfirm,
   handleOpenArchivedAccounts,
+  onOpenYearReport,
 }: {
   surface: string;
   sectionLabel: string;
@@ -108,6 +112,7 @@ export function SettingsTab({
   handleLogout: () => void;
   setShowDeleteConfirm: (v: boolean) => void;
   handleOpenArchivedAccounts: () => void;
+  onOpenYearReport: () => void;
 }) {
   const [showPlanDetails, setShowPlanDetails] = useState(false);
   const isPro = currentUser?.entitlements?.isPro ?? false;
@@ -220,6 +225,15 @@ export function SettingsTab({
               <span className="text-sm font-medium">匯出 CSV 報表</span>
             </div>
             <span className={`text-xs ${textMuted}`}>資產清單＋歷史</span>
+          </button>
+        </div>
+        <div className="border-t border-black/[0.06] dark:border-white/[0.06]">
+          <button onClick={() => (isPro ? onOpenYearReport() : setShowPlanDetails(true))} className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+            <div className="flex items-center gap-3">
+              <FileText className="h-4 w-4" style={{ color: gold }} />
+              <span className="text-sm font-medium">年度報告</span>
+            </div>
+            {isPro ? <ChevronRight className={`h-4 w-4 ${textMuted}`} /> : <Lock className={`h-3.5 w-3.5 ${textMuted}`} />}
           </button>
         </div>
         <div className="border-t border-black/[0.06] dark:border-white/[0.06]">

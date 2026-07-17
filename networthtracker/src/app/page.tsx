@@ -127,6 +127,10 @@ export default function HomePage() {
   const isDarkMode = mounted && resolvedTheme === "dark";
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [showHistoryForm, setShowHistoryForm] = useState(false);
+  const [showYearReport, setShowYearReport] = useState(false);
+  const [whatIfMonthly, setWhatIfMonthly] = useState("10000");
+  const [whatIfYears, setWhatIfYears] = useState("10");
+  const [whatIfRate, setWhatIfRate] = useState("5");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [historyFormData, setHistoryFormData] = useState({ date: "", netWorth: "" });
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -964,6 +968,39 @@ export default function HomePage() {
     const days = Math.max(1, (new Date(last.date).getTime() - new Date(first.date).getTime()) / 86400000);
     return { delta, pct, high, low, dailyAvg: delta / days, days: Math.round(days), first, last };
   }, [chartData]);
+
+  // 情境模擬（Pro）：現有淨值 + 每月加碼，用年金終值公式推算幾年後的淨資產
+  const whatIfResult = useMemo(() => {
+    const monthly = Number(whatIfMonthly) || 0;
+    const years = Number(whatIfYears) || 0;
+    const annualRate = Number(whatIfRate) || 0;
+    if (years <= 0 || summary.netWorth <= 0) return null;
+    const r = annualRate / 100 / 12;
+    const n = Math.round(years * 12);
+    const growthOnly = r === 0 ? summary.netWorth : summary.netWorth * Math.pow(1 + r, n);
+    const fromContrib = r === 0 ? monthly * n : monthly * ((Math.pow(1 + r, n) - 1) / r);
+    return { total: growthOnly + fromContrib, growthOnly, contributed: monthly * n, fromContribGrowth: fromContrib - monthly * n };
+  }, [whatIfMonthly, whatIfYears, whatIfRate, summary.netWorth]);
+
+  // 年度報告（Pro）：今年至今的淨值變化 + 表現最好/最差的月份
+  const yearReport = useMemo(() => {
+    if (history.length < 2) return null;
+    const now = new Date();
+    const yearStart = `${now.getFullYear()}-01-01`;
+    const sorted = [...history].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const inYear = sorted.filter((p: any) => String(p.date).slice(0, 10) >= yearStart);
+    if (inYear.length < 2) return null;
+    const first = inYear[0], last = inYear[inYear.length - 1];
+    const startNetWorth = Number(first.netWorth), endNetWorth = Number(last.netWorth);
+    const delta = endNetWorth - startNetWorth;
+    const pct = startNetWorth ? (delta / Math.abs(startNetWorth)) * 100 : null;
+    let best: typeof monthlyDeltas[number] | null = null, worst: typeof monthlyDeltas[number] | null = null;
+    for (const m of monthlyDeltas) {
+      if (!best || m.delta > best.delta) best = m;
+      if (!worst || m.delta < worst.delta) worst = m;
+    }
+    return { year: now.getFullYear(), delta, pct, startNetWorth, endNetWorth, best, worst };
+  }, [history, monthlyDeltas]);
 
   // 資產 vs 負債分解：沿用 chartData 的時間軸，把歷史快照的總資產/總負債前向填充上去
   const assetLiabData = useMemo(() => {
@@ -1884,25 +1921,30 @@ export default function HomePage() {
 
             {/* 時間範圍 — segmented control */}
             <div className="flex gap-1 p-1 rounded-full bg-black/[0.05] dark:bg-white/[0.06]">
-              {([["day", "兩週"], ["month", "六個月"], ["year", "一年"], ["custom", "自訂"]] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => {
-                    if (key === "custom") {
-                      const todayStr = new Date().toISOString().slice(0, 10);
-                      setCustomRangeDraft(customRange ?? { start: todayStr, end: todayStr });
-                      setShowCustomRangePicker(true);
-                    } else {
-                      setTimeframe(key);
-                      setShowCustomRangePicker(false);
-                    }
-                  }}
-                  className={`flex-1 py-2 text-xs font-semibold rounded-full transition-colors ${timeframe === key ? "bg-white dark:bg-[#151923] shadow-sm" : textMuted}`}
-                  style={timeframe === key ? { color: gold } : undefined}
-                >
-                  {label}
-                </button>
-              ))}
+              {([["day", "兩週"], ["month", "六個月"], ["year", "一年"], ["custom", "自訂"]] as const).map(([key, label]) => {
+                const locked = key !== "day" && !currentUser?.entitlements?.isPro;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      if (locked) { setActiveTab("settings"); return; }
+                      if (key === "custom") {
+                        const todayStr = new Date().toISOString().slice(0, 10);
+                        setCustomRangeDraft(customRange ?? { start: todayStr, end: todayStr });
+                        setShowCustomRangePicker(true);
+                      } else {
+                        setTimeframe(key);
+                        setShowCustomRangePicker(false);
+                      }
+                    }}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-full transition-colors ${timeframe === key ? "bg-white dark:bg-[#151923] shadow-sm" : textMuted}`}
+                    style={timeframe === key ? { color: gold } : undefined}
+                  >
+                    {locked && <Lock className="inline h-2.5 w-2.5 mr-1 -mt-0.5 opacity-60" />}
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
             <div className={`${surface} rounded-2xl p-4`}>
@@ -2006,6 +2048,34 @@ export default function HomePage() {
               </div>
             )}
 
+            {/* 情境模擬（Pro）*/}
+            <div className={`${surface} rounded-2xl p-4 relative`}>
+              {!currentUser?.entitlements?.isPro && <LockedOverlay onClick={() => setActiveTab("settings")} />}
+              <p className={`${cardTitle} mb-1`}>情境模擬</p>
+              <p className={`text-xs mb-3 ${textMuted}`}>如果每月持續加碼，幾年後淨資產大概會到哪</p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className={`block text-[11px] mb-1 ${textMuted}`}>每月加碼 (NT$)</label>
+                  <input type="number" inputMode="decimal" value={whatIfMonthly} onChange={(e) => setWhatIfMonthly(e.target.value)} className={`${inputCls} h-9 text-sm`} />
+                </div>
+                <div>
+                  <label className={`block text-[11px] mb-1 ${textMuted}`}>模擬年數</label>
+                  <input type="number" inputMode="numeric" value={whatIfYears} onChange={(e) => setWhatIfYears(e.target.value)} className={`${inputCls} h-9 text-sm`} />
+                </div>
+                <div className="col-span-2">
+                  <label className={`block text-[11px] mb-1 ${textMuted}`}>假設年化成長率 (%)</label>
+                  <input type="number" inputMode="decimal" value={whatIfRate} onChange={(e) => setWhatIfRate(e.target.value)} className={`${inputCls} h-9 text-sm`} />
+                </div>
+              </div>
+              {whatIfResult && (
+                <div className="pt-3 border-t border-black/[0.06] dark:border-white/[0.06]">
+                  <p className={`text-xs ${textMuted}`}>{whatIfYears} 年後預估淨資產</p>
+                  <p className="font-mono-ledger text-xl font-bold mt-0.5" style={{ color: gold }}>NT$ {formatCurrency(Math.round(whatIfResult.total))}</p>
+                  <p className={`text-xs mt-1 ${textMuted}`}>其中額外投入 NT$ {formatCurrency(Math.round(whatIfResult.contributed))}，成長貢獻 NT$ {formatCurrency(Math.round(whatIfResult.total - whatIfResult.contributed))}</p>
+                </div>
+              )}
+            </div>
+
             {/* 近期交易紀錄 */}
             {transactions.length > 0 && (
               <div className={`${surface} rounded-2xl p-4`}>
@@ -2082,6 +2152,7 @@ export default function HomePage() {
             handleLogout={handleLogout}
             setShowDeleteConfirm={setShowDeleteConfirm}
             handleOpenArchivedAccounts={handleOpenArchivedAccounts}
+            onOpenYearReport={() => setShowYearReport(true)}
           />
         )}
       </div>
@@ -2488,6 +2559,72 @@ export default function HomePage() {
                 </button>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 年度報告 Modal（Pro）*/}
+      {showYearReport && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[85vh] overflow-y-auto`}>
+            <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5">
+              <h2 className="font-display text-base font-semibold">{yearReport?.year ?? new Date().getFullYear()} 年度報告</h2>
+              <button onClick={() => setShowYearReport(false)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+            </div>
+            {yearReport ? (
+              <div className="p-5 space-y-4">
+                <div
+                  className="relative overflow-hidden rounded-[20px] p-5"
+                  style={{ background: HERO_THEMES[heroTheme].background, color: HERO_THEMES[heroTheme].text, boxShadow: `${HERO_THEMES[heroTheme].shadow}, ${HERO_THEMES[heroTheme].ring}` }}
+                >
+                  <p className="text-xs font-bold tracking-[0.18em] uppercase opacity-70">{yearReport.year} 淨資產變化</p>
+                  <p className="font-mono-ledger text-2xl font-bold mt-2">
+                    {yearReport.delta >= 0 ? "+" : "−"}NT$ {formatCurrency(Math.round(Math.abs(yearReport.delta)))}
+                  </p>
+                  {yearReport.pct !== null && (
+                    <p className="text-sm font-semibold mt-1">{yearReport.pct >= 0 ? "+" : "−"}{Math.abs(yearReport.pct).toFixed(1)}%</p>
+                  )}
+                  <div className="flex items-center gap-4 mt-4 text-xs font-mono-ledger opacity-80">
+                    <span>年初 NT$ {formatCurrency(Math.round(yearReport.startNetWorth))}</span>
+                    <span>目前 NT$ {formatCurrency(Math.round(yearReport.endNetWorth))}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className={`${surface} border border-black/[0.06] dark:border-white/[0.06] rounded-xl p-3`}>
+                    <p className={`text-xs ${textMuted}`}>表現最好的月份</p>
+                    {yearReport.best ? (
+                      <>
+                        <p className="text-sm font-bold mt-1">{yearReport.best.label}</p>
+                        <p className="font-mono-ledger text-xs font-semibold text-[#4F7B5E]">+NT$ {formatCurrency(Math.round(yearReport.best.delta))}</p>
+                      </>
+                    ) : <p className="text-sm mt-1">—</p>}
+                  </div>
+                  <div className={`${surface} border border-black/[0.06] dark:border-white/[0.06] rounded-xl p-3`}>
+                    <p className={`text-xs ${textMuted}`}>表現最弱的月份</p>
+                    {yearReport.worst ? (
+                      <>
+                        <p className="text-sm font-bold mt-1">{yearReport.worst.label}</p>
+                        <p className="font-mono-ledger text-xs font-semibold text-[#A24936]">{yearReport.worst.delta >= 0 ? "+" : "−"}NT$ {formatCurrency(Math.round(Math.abs(yearReport.worst.delta)))}</p>
+                      </>
+                    ) : <p className="text-sm mt-1">—</p>}
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    const text = `${yearReport.year} 年度報告 · 淨資產${yearReport.delta >= 0 ? "成長" : "減少"} NT$ ${formatCurrency(Math.round(Math.abs(yearReport.delta)))}${yearReport.pct !== null ? `（${yearReport.pct >= 0 ? "+" : "−"}${Math.abs(yearReport.pct).toFixed(1)}%）` : ""} · 來自 Zeno`;
+                    if (navigator.share) { try { await navigator.share({ text }); } catch { } }
+                    else { await navigator.clipboard.writeText(text).catch(() => { }); showToast("已複製摘要文字"); }
+                  }}
+                  className={btnPrimary}
+                >
+                  分享
+                </button>
+              </div>
+            ) : (
+              <div className="p-5">
+                <p className={`text-sm ${textMuted}`}>今年的走勢資料還不夠，累積幾筆之後再回來看看。</p>
+              </div>
+            )}
           </div>
         </div>
       )}
