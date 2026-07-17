@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
-import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw, Crown } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw, Crown, Home, Plane, Car, GraduationCap, PiggyBank, Heart, Briefcase, Target } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -89,19 +89,38 @@ const FontStyles = () => (
   `}</style>
 );
 
-// 目標進度環：素圈＋描邊進度，不用插畫，維持跟其餘畫面一致的低調感
-const GoalRing = ({ progress, size = 30, color }: { progress: number; size?: number; color: string }) => {
+// 目標圖示：使用者自選一個代表這個目標的 icon（存在 Goal.emoji 欄位，其實存的是 icon key 不是真的 emoji）
+const GOAL_ICONS: Record<string, typeof Home> = {
+  home: Home, plane: Plane, car: Car, education: GraduationCap,
+  savings: PiggyBank, family: Heart, career: Briefcase, target: Target,
+};
+const GOAL_ICON_CHOICES: { key: string; icon: typeof Home; label: string }[] = [
+  { key: "target", icon: Target, label: "通用" },
+  { key: "home", icon: Home, label: "買房" },
+  { key: "plane", icon: Plane, label: "旅遊" },
+  { key: "car", icon: Car, label: "買車" },
+  { key: "education", icon: GraduationCap, label: "教育" },
+  { key: "savings", icon: PiggyBank, label: "儲蓄" },
+  { key: "family", icon: Heart, label: "家庭" },
+  { key: "career", icon: Briefcase, label: "職涯" },
+];
+
+// 目標進度環：未達標時圈圈中間顯示使用者自選的 icon，達標時不管選了什麼一律換成皇冠
+const GoalRing = ({ progress, size = 30, color, iconKey }: { progress: number; size?: number; color: string; iconKey?: string | null }) => {
   const p = Math.max(0, Math.min(100, progress || 0));
   const r = 13;
   const c = 2 * Math.PI * r;
   const achieved = p >= 100;
+  const GoalIcon = GOAL_ICONS[iconKey ?? ""] ?? Target;
   return (
     <span className="relative inline-flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox="0 0 32 32" className="absolute inset-0 -rotate-90">
         <circle cx="16" cy="16" r={r} fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2.5" />
         <circle cx="16" cy="16" r={r} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - p / 100)} />
       </svg>
-      {achieved && <Crown className="h-3.5 w-3.5" style={{ color }} fill={color} strokeWidth={1.5} />}
+      {achieved
+        ? <Crown className="h-3.5 w-3.5" style={{ color }} fill={color} strokeWidth={1.5} />
+        : <GoalIcon className="h-3.5 w-3.5" style={{ color }} strokeWidth={2} />}
     </span>
   );
 };
@@ -1592,7 +1611,7 @@ export default function HomePage() {
                   <div key={goal.id} className="relative px-4 py-3.5 flex items-center gap-3">
                     {lockedGoalIds.has(goal.id) && <LockedOverlay onClick={() => setActiveTab("settings")} />}
                     <div className="shrink-0 flex items-center justify-center">
-                      <GoalRing progress={goal.progress} size={30} color={goal.progress >= 100 ? "#4F7B5E" : gold} />
+                      <GoalRing progress={goal.progress} size={30} color={goal.progress >= 100 ? "#4F7B5E" : gold} iconKey={goal.emoji} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
@@ -2667,6 +2686,27 @@ export default function HomePage() {
                 <div>
                   <label className={`block text-xs mb-2 ${sectionLabel}`}>目標名稱</label>
                   <input value={goalForm.name} onChange={e => setGoalForm({ ...goalForm, name: e.target.value })} placeholder="例如：買房頭期款" className={inputCls} required />
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>圖示</label>
+                  <div className="flex flex-wrap gap-2">
+                    {GOAL_ICON_CHOICES.map(({ key, icon: Icon, label }) => {
+                      const selected = (goalForm.emoji || "target") === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setGoalForm({ ...goalForm, emoji: key })}
+                          aria-label={label}
+                          aria-pressed={selected}
+                          className={`h-11 w-11 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${selected ? "" : "border-black/10 dark:border-white/10"}`}
+                          style={selected ? { borderColor: gold, background: `${gold}1A`, color: gold } : undefined}
+                        >
+                          <Icon className={`h-4 w-4 ${selected ? "" : textMuted}`} strokeWidth={2} />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div>
                   <label className={`block text-xs mb-2 ${sectionLabel}`}>{goalForm.type === "DEBT_PAYOFF" ? "負債總金額 (NT$)" : "目標金額 (NT$)"}</label>
