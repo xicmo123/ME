@@ -328,13 +328,13 @@ export async function GET(request: NextRequest) {
   }
 
   // Free 方案：即時股價自動更新（10 分鐘 cron）是 Pro 專屬，Free 只能手動同步，
-  // 且每 4 小時最多手動同步 3 次；Pro 不受此限制。
+  // 且一天最多手動同步 3 次；Pro 不受此限制。
   if (!isCron && requestUserId) {
     const syncStatus = await getManualSyncStatusForUser(requestUserId);
     if (syncStatus.limit != null && syncStatus.remaining === 0) {
       return NextResponse.json(
         {
-          message: `免費方案每 4 小時最多手動同步 ${syncStatus.limit} 次，升級 Pro 解鎖每 10 分鐘自動即時更新股價。`,
+          message: `免費方案一天最多手動同步 ${syncStatus.limit} 次，升級 Pro 解鎖每 10 分鐘自動即時更新股價。`,
           code: "UPGRADE_REQUIRED",
           feature: "autoSync",
           resetAt: syncStatus.resetAt,

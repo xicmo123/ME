@@ -16,15 +16,15 @@ type Entitlements = {
   tier: "FREE" | "PRO";
   isPro: boolean;
   limits: { maxAccounts: number | null; maxGoals: number | null };
-  manualSyncLimitPer4Hours?: number | null;
+  manualSyncLimitPerDay?: number | null;
 };
 
 type CurrentUser = { email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean; entitlements?: Entitlements } | null;
 
 const PLAN_COMPARISON: { label: string; free: string; pro: string }[] = [
-  { label: "帳戶數量", free: "最多 20 個", pro: "無限" },
+  { label: "帳戶數量", free: "最多 10 個", pro: "無限" },
   { label: "財務目標", free: "最多 3 個", pro: "無限" },
-  { label: "股價即時更新", free: "手動同步，每 4 小時最多 3 次", pro: "每 10 分鐘自動更新" },
+  { label: "股價即時更新", free: "手動同步，一天最多 3 次", pro: "每 10 分鐘自動更新" },
   { label: "交易所自動同步", free: "—", pro: "✓" },
   { label: "CSV 報表匯出", free: "—", pro: "✓" },
   { label: "定期扣款自動記帳", free: "—", pro: "✓" },
@@ -235,8 +235,8 @@ export function SettingsTab({
                   {syncOutOfQuota
                     ? `已用完本次額度，${syncResetLabel ?? "稍後"}恢復`
                     : syncStatus?.remaining != null
-                      ? `剩餘次數：${syncStatus.remaining}/${syncStatus.limit} 次（每 4 小時重置）`
-                      : `免費方案每 4 小時最多手動同步 ${currentUser?.entitlements?.manualSyncLimitPer4Hours ?? 3} 次；升級 Pro 享每 10 分鐘自動更新`}
+                      ? `剩餘次數：${syncStatus.remaining}/${syncStatus.limit} 次（24 小時後重置）`
+                      : `免費方案一天最多手動同步 ${currentUser?.entitlements?.manualSyncLimitPerDay ?? 3} 次；升級 Pro 享每 10 分鐘自動更新`}
                 </span>
               )}
             </div>

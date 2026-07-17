@@ -18,10 +18,10 @@ export type Entitlements = {
     recurringTransactions: boolean; // 定期扣款自動記帳
     autoSync: boolean; // 股價/幣價每 10 分鐘自動更新；Free 只能手動同步
   };
-  manualSyncLimitPer4Hours: number | null; // null = 無上限（Pro）；Free 每 4 小時最多手動同步幾次
+  manualSyncLimitPerDay: number | null; // null = 無上限（Pro）；Free 一天最多手動同步幾次
 };
 
-const FREE_LIMITS: Entitlements["limits"] = { maxAccounts: 20, maxGoals: 3 };
+const FREE_LIMITS: Entitlements["limits"] = { maxAccounts: 10, maxGoals: 3 };
 const PRO_LIMITS: Entitlements["limits"] = { maxAccounts: null, maxGoals: null };
 
 const FREE_FEATURES: Entitlements["features"] = {
@@ -37,7 +37,7 @@ const PRO_FEATURES: Entitlements["features"] = {
   autoSync: true,
 };
 
-const FREE_MANUAL_SYNC_LIMIT_PER_4H = 3;
+const FREE_MANUAL_SYNC_LIMIT_PER_DAY = 3;
 
 // ACTIVE/TRIALING 才算有效訂閱；過期日一到，即使 tier 欄位還沒被 webhook 改回 FREE 也視為無效，
 // 避免金流那邊 webhook 延遲或漏接時，使用者無限期免費用到付費功能。
@@ -58,7 +58,7 @@ export function resolveEntitlements(user: {
     isPro,
     limits: isPro ? PRO_LIMITS : FREE_LIMITS,
     features: isPro ? PRO_FEATURES : FREE_FEATURES,
-    manualSyncLimitPer4Hours: isPro ? null : FREE_MANUAL_SYNC_LIMIT_PER_4H,
+    manualSyncLimitPerDay: isPro ? null : FREE_MANUAL_SYNC_LIMIT_PER_DAY,
   };
 }
 
@@ -79,26 +79,26 @@ export async function getManualSyncStatusForUser(userId: string): Promise<{
   limit: number | null; // null = Pro，無上限
   used: number;
   remaining: number | null;
-  resetAt: string | null; // 最早那筆會在幾點過期（4 小時後）滾出限制窗口，null 代表沒有已用次數，或無上限
+  resetAt: string | null; // 最早那筆會在幾點過期（24 小時後）滾出限制窗口，null 代表沒有已用次數，或無上限
 }> {
   const entitlements = await getEntitlementsForUser(userId);
-  if (entitlements.manualSyncLimitPer4Hours == null) {
+  if (entitlements.manualSyncLimitPerDay == null) {
     return { limit: null, used: 0, remaining: null, resetAt: null };
   }
 
-  const limit = entitlements.manualSyncLimitPer4Hours;
-  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+  const limit = entitlements.manualSyncLimitPerDay;
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const recentSyncs = await prisma.syncLog.findMany({
-    where: { userId, syncedAt: { gt: fourHoursAgo } },
+    where: { userId, syncedAt: { gt: oneDayAgo } },
     orderBy: { syncedAt: "asc" },
     select: { syncedAt: true },
   });
 
   const used = recentSyncs.length;
   const remaining = Math.max(0, limit - used);
-  // 額度用完時，下一次恢復的時間點 = 目前這批紀錄裡最早一筆的時間 + 4 小時（它滾出視窗後名額就空出一次）
+  // 額度用完時，下一次恢復的時間點 = 目前這批紀錄裡最早一筆的時間 + 24 小時（它滾出視窗後名額就空出一次）
   const resetAt = remaining === 0 && recentSyncs[0]
-    ? new Date(recentSyncs[0].syncedAt.getTime() + 4 * 60 * 60 * 1000).toISOString()
+    ? new Date(recentSyncs[0].syncedAt.getTime() + 24 * 60 * 60 * 1000).toISOString()
     : null;
 
   return { limit, used, remaining, resetAt };

@@ -216,7 +216,7 @@ export default function HomePage() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [currentUser, setCurrentUser] = useState<{
     email: string; hasGoogle: boolean; hasApple: boolean; hasPassword: boolean;
-    entitlements?: { tier: "FREE" | "PRO"; isPro: boolean; limits: { maxAccounts: number | null; maxGoals: number | null }; manualSyncLimitPer4Hours?: number | null };
+    entitlements?: { tier: "FREE" | "PRO"; isPro: boolean; limits: { maxAccounts: number | null; maxGoals: number | null }; manualSyncLimitPerDay?: number | null };
   } | null>(null);
   const [googleUnlinking, setGoogleUnlinking] = useState(false);
   const [appleUnlinking, setAppleUnlinking] = useState(false);
@@ -1511,7 +1511,7 @@ export default function HomePage() {
                     onClick={handleSyncPrices}
                     disabled={syncing}
                     aria-label="更新價格"
-                    title={currentUser?.entitlements && !currentUser.entitlements.isPro ? `免費方案每 4 小時最多手動同步 ${currentUser.entitlements.manualSyncLimitPer4Hours ?? 3} 次` : undefined}
+                    title={currentUser?.entitlements && !currentUser.entitlements.isPro ? `免費方案一天最多手動同步 ${currentUser.entitlements.manualSyncLimitPerDay ?? 3} 次` : undefined}
                     className="h-9 w-9 rounded-full flex items-center justify-center active:scale-95 transition-all"
                     style={{ background: HERO_THEMES[heroTheme].chipBtnBg }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = HERO_THEMES[heroTheme].chipBtnBgHover)}
