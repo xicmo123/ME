@@ -11,14 +11,20 @@ import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitleme
 
 import { prisma } from "@/lib/prisma";
 
-const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
+const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"];
 const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"];
+
+// Yahoo Finance 的市場代碼後綴：台股 .TW、日股 .T、韓股 .KS（KOSDAQ 上市的少數代號可能查不到，屬已知限制）
+const yahooSuffixByCategory: Record<string, string> = { TAIWAN_STOCK: ".TW", JAPAN_STOCK: ".T", KOREA_STOCK: ".KS" };
+// 換算成 TWD 用的匯率代碼（Yahoo「該幣別TWD=X」格式），美股沿用既有的 TWD=X（= USDTWD）
+const fxSymbolByCategory: Record<string, string> = { US_STOCK: "TWD=X", JAPAN_STOCK: "JPYTWD=X", KOREA_STOCK: "KRWTWD=X" };
 
 // 回傳的 price 一律是「該標的原始幣別」的單價（跟帳戶 currency 一致，前端「即時股價」就是顯示這個），
 // value 才是換算成 TWD 後、乘以持有數量前的單價換算基準；currentValue 由呼叫端用 quantity * value 算。
 async function fetchMarketPrice(category: string, rawSymbol: string): Promise<{ price: number; value: number }> {
-  const symbol = category === "TAIWAN_STOCK" && !rawSymbol.toUpperCase().endsWith(".TW")
-    ? rawSymbol.toUpperCase() + ".TW"
+  const suffix = yahooSuffixByCategory[category];
+  const symbol = suffix && !rawSymbol.toUpperCase().endsWith(suffix)
+    ? rawSymbol.toUpperCase() + suffix
     : rawSymbol;
   const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
@@ -48,10 +54,11 @@ async function fetchMarketPrice(category: string, rawSymbol: string): Promise<{ 
   const quoteResult = await yahoo.quote(symbol);
   const marketPrice = Number(quoteResult.regularMarketPrice || 0);
 
-  if (category === "US_STOCK") {
-    const usdToTwdResult = await yahoo.quote("TWD=X");
-    const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1);
-    return { price: marketPrice, value: marketPrice * usdToTwdRate };
+  const fxSymbol = fxSymbolByCategory[category];
+  if (fxSymbol) {
+    const fxResult = await yahoo.quote(fxSymbol);
+    const fxRate = Number(fxResult.regularMarketPrice || 1);
+    return { price: marketPrice, value: marketPrice * fxRate };
   }
 
   return { price: marketPrice, value: marketPrice };

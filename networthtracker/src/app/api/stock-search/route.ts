@@ -25,7 +25,7 @@ async function fetchYahooMatches(q: string, quoteTypes: string[], exchange?: str
       .filter((quote): quote is typeof quote & { quoteType: string; symbol: string; exchange?: string } => "quoteType" in quote && quoteTypes.includes(quote.quoteType as string))
       .filter((quote) => (exchange ? "exchange" in quote && quote.exchange === exchange : !quote.symbol.includes(".")))
       .map((quote) => ({
-        symbol: exchange ? quote.symbol.replace(/\.TW$/i, "") : quote.symbol.replace(/-USD$/i, ""),
+        symbol: exchange ? quote.symbol.replace(/\.(TW|KS|T)$/i, "") : quote.symbol.replace(/-USD$/i, ""),
         name: "shortname" in quote && typeof quote.shortname === "string" ? quote.shortname : quote.symbol,
       }));
   } catch {
@@ -61,6 +61,18 @@ export async function GET(request: NextRequest) {
     const yahooMatches = await fetchYahooMatches(q, ["EQUITY", "ETF"], "TAI");
     for (const m of yahooMatches) if (!localMatches.some((e) => e.symbol === m.symbol)) localMatches.push(m);
     return NextResponse.json({ results: localMatches.slice(0, 10) });
+  }
+
+  // 日股/韓股沒有本地清單（跟台股/美股不同），直接查 Yahoo 依交易所代碼過濾：
+  // 日股 JPX（東證），韓股 KSC（KOSPI，KOSDAQ 上市的少數代號可能查不到，屬已知限制）
+  if (market === "JP") {
+    const yahooMatches = await fetchYahooMatches(q, ["EQUITY", "ETF"], "JPX");
+    return NextResponse.json({ results: yahooMatches.slice(0, 10) });
+  }
+
+  if (market === "KR") {
+    const yahooMatches = await fetchYahooMatches(q, ["EQUITY", "ETF"], "KSC");
+    return NextResponse.json({ results: yahooMatches.slice(0, 10) });
   }
 
   if (market === "CRYPTO") {

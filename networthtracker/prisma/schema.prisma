@@ -20,6 +20,8 @@ enum AccountCategory {
   BANK_ACCOUNT
   TAIWAN_STOCK
   US_STOCK
+  JAPAN_STOCK
+  KOREA_STOCK
   CRYPTO
   FIXED_ASSET
   RECEIVABLE
@@ -42,6 +44,7 @@ enum Currency {
   TWD
   USD
   JPY
+  KRW
   EUR
   GBP
   HKD

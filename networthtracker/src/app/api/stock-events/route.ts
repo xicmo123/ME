@@ -16,6 +16,34 @@ const TW_FORECAST_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 除權除息預告表一
 type CacheEntry<T> = { data: T; expiresAt: number };
 const yahooCache = new Map<string, CacheEntry<{ name: string; events: StockEvent[] }>>();
 let twForecastCache: CacheEntry<{ twse: Map<string, string>; tpex: Map<string, string> }> | null = null;
+const twNameCache = new Map<string, CacheEntry<string>>();
+const TW_NAME_CACHE_TTL_MS = 60 * 60 * 1000; // 公司名稱不會常變，快取 1 小時
+
+// 台股用證交所自己的公開行情端點取中文簡稱（"n" 欄位），比 Yahoo 的英文 shortName 更適合行事曆顯示。
+// 上市（tse）查不到就試上櫃（otc）；兩邊都查不到就回 null，讓呼叫端 fallback 回 Yahoo 英文名稱。
+async function getTwseChineseName(rawSymbol: string): Promise<string | null> {
+  const code = rawSymbol.replace(/\.TW$/i, "").trim();
+  if (!code) return null;
+
+  const cached = twNameCache.get(code);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+  for (const prefix of ["tse", "otc"]) {
+    try {
+      const res = await fetch(`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${prefix}_${code}.tw`, { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const name = data?.msgArray?.[0]?.n;
+      if (name) {
+        twNameCache.set(code, { data: name, expiresAt: Date.now() + TW_NAME_CACHE_TTL_MS });
+        return name;
+      }
+    } catch {
+      // 忽略，換下一個 prefix 或最終回傳 null 讓呼叫端 fallback
+    }
+  }
+  return null;
+}
 
 // 民國年日期字串（"115年07月21日" 或緊湊格式 "1150721"）轉 ISO 字串
 function parseRocDate(rocYear: number, month: number, day: number): string | null {
@@ -69,7 +97,8 @@ async function fetchTpexExRightForecast(): Promise<Map<string, string>> {
   return map;
 }
 
-// symbols 格式：台股帶 .TW（例如 2330.TW），美股直接用代號（例如 AAPL）
+// symbols 格式：台股帶 .TW（例如 2330.TW）、日股帶 .T（例如 7203.T）、韓股帶 .KS（例如 005930.KS），
+// 美股直接用代號（例如 AAPL）
 export async function GET(request: NextRequest) {
   const symbolsParam = request.nextUrl.searchParams.get("symbols") ?? "";
   const symbols = symbolsParam.split(",").map((s) => s.trim()).filter(Boolean);
@@ -96,17 +125,24 @@ export async function GET(request: NextRequest) {
 
   await Promise.all(
     symbols.map(async (symbol) => {
-      const displaySymbol = symbol.replace(/\.TW$/i, "");
+      const isTwSymbol = /\.TW$/i.test(symbol);
+      const displaySymbol = symbol.replace(/\.TW$/i, "").replace(/\.T$/i, "").replace(/\.KS$/i, "");
       let name = symbol;
       let gotExDividendFromYahoo = false;
+
+      // 台股一律優先用證交所的中文簡稱，不管 Yahoo 查不查得到都要覆蓋成中文，
+      // 其他市場（美股/日股/韓股）維持 Yahoo 的英文 shortName。
+      const twChineseName = isTwSymbol ? await getTwseChineseName(displaySymbol) : null;
+
+      let symbolEvents: StockEvent[] = [];
 
       const cached = yahooCache.get(symbol);
       if (cached && cached.expiresAt > Date.now()) {
         name = cached.data.name;
-        events.push(...cached.data.events);
+        symbolEvents = cached.data.events;
         gotExDividendFromYahoo = cached.data.events.some((e) => e.type === "EX_DIVIDEND");
       } else {
-        const symbolEvents: StockEvent[] = [];
+        const freshEvents: StockEvent[] = [];
         try {
           const res = await yahoo.quoteSummary(symbol, { modules: ["calendarEvents", "price", "summaryDetail"] });
           name = res.price?.shortName ?? symbol;
@@ -115,31 +151,35 @@ export async function GET(request: NextRequest) {
           const annualDividendRate = typeof res.summaryDetail?.dividendRate === "number" ? res.summaryDetail.dividendRate : undefined;
 
           for (const d of res.calendarEvents?.earnings?.earningsDate ?? []) {
-            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(d).toISOString(), type: "EARNINGS" });
+            freshEvents.push({ symbol: displaySymbol, name, date: new Date(d).toISOString(), type: "EARNINGS" });
           }
           if (res.calendarEvents?.exDividendDate) {
-            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.exDividendDate).toISOString(), type: "EX_DIVIDEND", amountPerShare: annualDividendRate, amountPerShareIsAnnualized: annualDividendRate != null });
+            freshEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.exDividendDate).toISOString(), type: "EX_DIVIDEND", amountPerShare: annualDividendRate, amountPerShareIsAnnualized: annualDividendRate != null });
             gotExDividendFromYahoo = true;
           }
           if (res.calendarEvents?.dividendDate) {
-            symbolEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.dividendDate).toISOString(), type: "DIVIDEND_PAY", amountPerShare: annualDividendRate, amountPerShareIsAnnualized: annualDividendRate != null });
+            freshEvents.push({ symbol: displaySymbol, name, date: new Date(res.calendarEvents.dividendDate).toISOString(), type: "DIVIDEND_PAY", amountPerShare: annualDividendRate, amountPerShareIsAnnualized: annualDividendRate != null });
           }
-          yahooCache.set(symbol, { data: { name, events: symbolEvents }, expiresAt: Date.now() + YAHOO_CACHE_TTL_MS });
+          yahooCache.set(symbol, { data: { name, events: freshEvents }, expiresAt: Date.now() + YAHOO_CACHE_TTL_MS });
         } catch (error) {
           // Yahoo 對台股 ETF 常常整支查不到（no fundamentals data），不當作致命錯誤，
           // 記錄下來後續改用 TWSE/TPEX 備援繼續補資料，不影響其他股票
           errors.push(`Yahoo lookup failed for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
         }
-        events.push(...symbolEvents);
+        symbolEvents = freshEvents;
       }
 
       // 台股且 Yahoo 沒抓到除息日 → 用證交所/櫃買中心的除權除息預告表補上
-      if (!gotExDividendFromYahoo && /\.TW$/i.test(symbol)) {
+      if (!gotExDividendFromYahoo && isTwSymbol) {
         const isoDate = twseForecast.get(displaySymbol) ?? tpexForecast.get(displaySymbol);
         if (isoDate) {
-          events.push({ symbol: displaySymbol, name, date: isoDate, type: "EX_DIVIDEND" });
+          symbolEvents = [...symbolEvents, { symbol: displaySymbol, name, date: isoDate, type: "EX_DIVIDEND" }];
         }
       }
+
+      // 台股一律覆蓋成證交所中文簡稱（不管上面是走快取、Yahoo 或預告表分支拿到的英文/預設名稱）
+      const finalName = twChineseName ?? name;
+      events.push(...symbolEvents.map((e) => ({ ...e, name: finalName })));
     })
   );
 

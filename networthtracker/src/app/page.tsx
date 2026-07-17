@@ -17,6 +17,7 @@ const typeOptions = [{ value: "ASSET", label: "資產" }, { value: "LIABILITY", 
 const categoryOptions = [
   { value: "CASH", label: "現金" }, { value: "BANK_ACCOUNT", label: "銀行帳戶" },
   { value: "TAIWAN_STOCK", label: "台股" }, { value: "US_STOCK", label: "美股" },
+  { value: "JAPAN_STOCK", label: "日股" }, { value: "KOREA_STOCK", label: "韓股" },
   { value: "CRYPTO", label: "虛擬貨幣" }, { value: "FIXED_ASSET", label: "固定資產" },
   { value: "RECEIVABLE", label: "應收款" }, { value: "PAYABLE", label: "應付款" },
   { value: "MORTGAGE", label: "房貸" }, { value: "CAR_LOAN", label: "車貸" },
@@ -26,6 +27,7 @@ const currencyOptions = [
   { value: "TWD", label: "🇹🇼 TWD" },
   { value: "USD", label: "🇺🇸 USD" },
   { value: "JPY", label: "🇯🇵 JPY" },
+  { value: "KRW", label: "🇰🇷 KRW" },
   { value: "EUR", label: "🇪🇺 EUR" },
   { value: "GBP", label: "🇬🇧 GBP" },
   { value: "HKD", label: "🇭🇰 HKD" },
@@ -35,12 +37,13 @@ const currencyOptions = [
   { value: "SGD", label: "🇸🇬 SGD" },
 ];
 const categoryLabelMap: Record<string, string> = categoryOptions.reduce((acc, curr) => ({ ...acc, [curr.value]: curr.label }), {});
-const symbolRequiredCategories = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
-const fixedCurrencyCategories = ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"];
+const fixedCurrencyByCategory: Record<string, string> = { TAIWAN_STOCK: "TWD", US_STOCK: "USD", CRYPTO: "USD", JAPAN_STOCK: "JPY", KOREA_STOCK: "KRW" };
+const symbolRequiredCategories = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"];
+const fixedCurrencyCategories = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"];
 const amountInputCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"];
 // 類別依「資產/負債」分組：類型切換時用來重設類別、類別下拉選單也依此過濾，避免選出「資產」+「應付款」這種兜不起來的組合
 const categoriesByType: Record<string, string[]> = {
-  ASSET: ["CASH", "BANK_ACCOUNT", "TAIWAN_STOCK", "US_STOCK", "CRYPTO", "FIXED_ASSET", "RECEIVABLE"],
+  ASSET: ["CASH", "BANK_ACCOUNT", "TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO", "FIXED_ASSET", "RECEIVABLE"],
   LIABILITY: ["PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"],
 };
 const defaultForm = { name: "", type: "ASSET", category: "CASH", symbol: "", quantity: "", currency: "TWD", isApiConnected: false, apiSource: "BITFINEX", apiKey: "", apiSecret: "", apiPassphrase: "", monthlyDeductionAmount: "", deductionDate: "", interestRate: "", loanTermMonths: "", loanStartDate: "", deductFromAccountId: "" };
@@ -199,7 +202,7 @@ export default function HomePage() {
   const usesAmountInput = amountInputCategories.includes(formData.category);
   const amountFieldLabel = usesAmountInput ? (formData.type === "LIABILITY" ? "貸款總金額" : "總金額") : "持有數量/股數";
   const showApiFields = formData.category === "CRYPTO" && formData.isApiConnected;
-  const stockSearchMarket = formData.category === "TAIWAN_STOCK" ? "TW" : formData.category === "US_STOCK" ? "US" : formData.category === "CRYPTO" && !isCryptoApiMode ? "CRYPTO" : null;
+  const stockSearchMarket = formData.category === "TAIWAN_STOCK" ? "TW" : formData.category === "US_STOCK" ? "US" : formData.category === "JAPAN_STOCK" ? "JP" : formData.category === "KOREA_STOCK" ? "KR" : formData.category === "CRYPTO" && !isCryptoApiMode ? "CRYPTO" : null;
 
   useEffect(() => { if (showGoalForm) setGoalFormError(null); }, [showGoalForm]);
 
@@ -216,9 +219,14 @@ export default function HomePage() {
   }, [formData.symbol, stockSearchMarket]);
 
   const heldStockSymbols = useMemo(() => {
+    const suffixByCategory: Record<string, string> = { TAIWAN_STOCK: ".TW", JAPAN_STOCK: ".T", KOREA_STOCK: ".KS" };
+    const calendarCategories = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK"];
     const symbols = accounts
-      .filter((a) => a.isActive !== false && (a.category === "TAIWAN_STOCK" || a.category === "US_STOCK") && a.symbol)
-      .map((a) => (a.category === "TAIWAN_STOCK" ? `${String(a.symbol).replace(/\.TW$/i, "")}.TW` : String(a.symbol)));
+      .filter((a) => a.isActive !== false && calendarCategories.includes(a.category) && a.symbol)
+      .map((a) => {
+        const suffix = suffixByCategory[a.category];
+        return suffix ? `${String(a.symbol).replace(new RegExp(`\\${suffix}$`, "i"), "")}${suffix}` : String(a.symbol);
+      });
     return Array.from(new Set(symbols));
   }, [accounts]);
 
@@ -253,6 +261,8 @@ export default function HomePage() {
       { name: "流動資金", cats: ["CASH", "BANK_ACCOUNT"], color: "#B8933C" },
       { name: "台股", cats: ["TAIWAN_STOCK"], color: "#4F7B5E" },
       { name: "美股", cats: ["US_STOCK"], color: "#5A7DA0" },
+      { name: "日股", cats: ["JAPAN_STOCK"], color: "#B85C7A" },
+      { name: "韓股", cats: ["KOREA_STOCK"], color: "#6B5CA5" },
       { name: "加密貨幣", cats: ["CRYPTO"], color: "#A24936" },
       { name: "其他", cats: ["FIXED_ASSET", "RECEIVABLE"], color: "#8A8F82" },
     ];
@@ -356,24 +366,12 @@ export default function HomePage() {
     return `${d.getFullYear()}/${d.getMonth() + 1}`;
   };
 
-  // 股價 API 回傳的公司名稱常是英文法定全名（例如「Taiwan Semiconductor Mfg...」），
-  // 使用者新增這檔股票時自己填過中文名稱，行事曆事件優先顯示這個，比較符合其他畫面的風格
-  const stockNameBySymbol = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const a of accounts) {
-      if ((a.category === "TAIWAN_STOCK" || a.category === "US_STOCK") && a.symbol && a.name) {
-        map[String(a.symbol).replace(/\.TW$/i, "").toUpperCase()] = a.name;
-      }
-    }
-    return map;
-  }, [accounts]);
-
+  // 公司名稱一律用 /api/stock-events 回傳的資料（台股是證交所中文簡稱，其他市場是 Yahoo 英文名稱），
+  // 不能用帳戶名稱（account.name）代替——那是使用者自己填的欄位（常常填券商名稱，例如「凱基證券」），
+  // 不是公司名稱，用它覆蓋會讓行事曆顯示「NVDA 凱基證券」這種錯誤結果。
   const allCalendarEvents = useMemo(() => {
-    return stockEvents.map((ev) => {
-      const key = ev.symbol.replace(/\.TW$/i, "").toUpperCase();
-      return { ...ev, name: stockNameBySymbol[key] ?? ev.name, id: undefined, note: undefined };
-    });
-  }, [stockEvents, stockNameBySymbol]);
+    return stockEvents.map((ev) => ({ ...ev, id: undefined, note: undefined }));
+  }, [stockEvents]);
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, typeof allCalendarEvents> = {};
@@ -1204,7 +1202,7 @@ export default function HomePage() {
 
   const accountGroups = [
     { title: "流動資金", color: "#B8933C", categories: ["BANK_ACCOUNT", "CASH", "FIXED_ASSET", "RECEIVABLE"], defaultCategory: "CASH", defaultType: "ASSET" },
-    { title: "投資組合", color: "#5A7DA0", categories: ["TAIWAN_STOCK", "US_STOCK", "CRYPTO"], defaultCategory: "TAIWAN_STOCK", defaultType: "ASSET" },
+    { title: "投資組合", color: "#5A7DA0", categories: ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"], defaultCategory: "TAIWAN_STOCK", defaultType: "ASSET" },
     { title: "負債總額", color: "#A24936", categories: ["PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"], defaultCategory: "PAYABLE", defaultType: "LIABILITY" },
   ];
 
@@ -2277,13 +2275,13 @@ export default function HomePage() {
                       const nextType = e.target.value;
                       const validCategories = categoriesByType[nextType] || [];
                       const nextCategory = validCategories.includes(formData.category) ? formData.category : validCategories[0];
-                      const forcedCurrency = nextCategory === "TAIWAN_STOCK" ? "TWD" : nextCategory === "US_STOCK" || nextCategory === "CRYPTO" ? "USD" : formData.currency;
+                      const forcedCurrency = fixedCurrencyByCategory[nextCategory] ?? formData.currency;
                       setFormData({ ...formData, type: nextType, category: nextCategory, currency: forcedCurrency, isApiConnected: nextCategory === "CRYPTO" ? formData.isApiConnected : false, symbol: "" });
                     }} className={inputCls}>{typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
                   </div>
                   <div>
                     <label className={`block text-xs mb-2 ${sectionLabel}`}>類別</label>
-                    <select value={formData.category} onChange={(e) => { const n = e.target.value; const forcedCurrency = n === "TAIWAN_STOCK" ? "TWD" : n === "US_STOCK" || n === "CRYPTO" ? "USD" : formData.currency; setFormData({ ...formData, category: n, currency: forcedCurrency, isApiConnected: n === "CRYPTO" ? formData.isApiConnected : false, symbol: "" }); }} className={inputCls}>{categoryOptions.filter(o => (categoriesByType[formData.type] || []).includes(o.value)).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+                    <select value={formData.category} onChange={(e) => { const n = e.target.value; const forcedCurrency = fixedCurrencyByCategory[n] ?? formData.currency; setFormData({ ...formData, category: n, currency: forcedCurrency, isApiConnected: n === "CRYPTO" ? formData.isApiConnected : false, symbol: "" }); }} className={inputCls}>{categoryOptions.filter(o => (categoriesByType[formData.type] || []).includes(o.value)).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -2310,13 +2308,13 @@ export default function HomePage() {
                 </div>
                 {requiresSymbol && (
                   <div className="relative">
-                    <label className={`block text-xs mb-2 ${sectionLabel}`}>代號 {formData.category === "TAIWAN_STOCK" ? "（可輸入代號或名稱，例如「台積電」或「2330」）" : formData.category === "CRYPTO" ? "（可輸入代號或中英文名稱，例如「比特幣」或「BTC」）" : "（可輸入代號或中英文名稱，例如「蘋果」或「AAPL」）"}</label>
+                    <label className={`block text-xs mb-2 ${sectionLabel}`}>代號 {formData.category === "TAIWAN_STOCK" ? "（可輸入代號或名稱，例如「台積電」或「2330」）" : formData.category === "CRYPTO" ? "（可輸入代號或中英文名稱，例如「比特幣」或「BTC」）" : formData.category === "JAPAN_STOCK" ? "（可輸入代號或英文名稱，例如「7203」或「Toyota」）" : formData.category === "KOREA_STOCK" ? "（可輸入代號或英文名稱，例如「005930」或「Samsung」）" : "（可輸入代號或中英文名稱，例如「蘋果」或「AAPL」）"}</label>
                     <input
                       value={formData.symbol}
                       onChange={(e) => { setFormData({ ...formData, symbol: e.target.value }); setShowSymbolSuggestions(true); }}
                       onFocus={() => setShowSymbolSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowSymbolSuggestions(false), 150)}
-                      placeholder={formData.category === "TAIWAN_STOCK" ? "例如：台積電 或 2330" : formData.category === "CRYPTO" ? "例如：比特幣 或 BTC" : "例如：蘋果 或 AAPL"}
+                      placeholder={formData.category === "TAIWAN_STOCK" ? "例如：台積電 或 2330" : formData.category === "CRYPTO" ? "例如：比特幣 或 BTC" : formData.category === "JAPAN_STOCK" ? "例如：7203 或 Toyota" : formData.category === "KOREA_STOCK" ? "例如：005930 或 Samsung" : "例如：蘋果 或 AAPL"}
                       className={`${inputCls} font-mono-ledger`}
                       autoComplete="off"
                     />

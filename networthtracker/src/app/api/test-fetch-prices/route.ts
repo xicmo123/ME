@@ -57,6 +57,12 @@ function getYahooQuoteSymbol(category: string, symbol: string) {
   if (category === 'TAIWAN_STOCK') {
     return normalizedSymbol.endsWith('.TW') ? normalizedSymbol : `${normalizedSymbol}.TW`;
   }
+  if (category === 'JAPAN_STOCK') {
+    return normalizedSymbol.endsWith('.T') ? normalizedSymbol : `${normalizedSymbol}.T`;
+  }
+  if (category === 'KOREA_STOCK') {
+    return normalizedSymbol.endsWith('.KS') ? normalizedSymbol : `${normalizedSymbol}.KS`;
+  }
   return normalizedSymbol;
 }
 
@@ -102,9 +108,23 @@ function isUsMarketOpen(now: Date): boolean {
   return false;
 }
 
+// 東京／首爾均為 UTC+9（比台灣快 1 小時），兩地交易所都是 09:00 開盤；
+// 為求簡單這裡當作連續交易（不扣除午休），跟現有台股/美股的簡化程度一致。
+function isJpMarketOpen(now: Date): boolean {
+  const { weekday, totalMin } = getTaipeiParts(now);
+  return weekday >= 1 && weekday <= 5 && totalMin >= 8 * 60 && totalMin <= 14 * 60;
+}
+
+function isKrMarketOpen(now: Date): boolean {
+  const { weekday, totalMin } = getTaipeiParts(now);
+  return weekday >= 1 && weekday <= 5 && totalMin >= 8 * 60 && totalMin <= 14 * 60 + 30;
+}
+
 function isMarketOpenForCategory(category: string, now: Date): boolean {
   if (category === 'TAIWAN_STOCK') return isTwMarketOpen(now);
   if (category === 'US_STOCK') return isUsMarketOpen(now);
+  if (category === 'JAPAN_STOCK') return isJpMarketOpen(now);
+  if (category === 'KOREA_STOCK') return isKrMarketOpen(now);
   return true; // CRYPTO 24 小時市場
 }
 
@@ -160,6 +180,29 @@ async function getUsdToTwdRate(yahoo: any): Promise<{ rate: number; source: stri
     }
   } catch (error) {
     console.error(`er-api fallback error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return null;
+}
+
+// 日股/韓股用：Yahoo「該幣別TWD=X」查不到時，退回 er-api（以 USD 為基準換算：TWD/該幣別 的交叉匯率）
+async function getFxToTwdRate(yahoo: any, yahooFxSymbol: string, erApiCurrency: string): Promise<{ rate: number; source: string } | null> {
+  try {
+    const result = await yahoo.quote(yahooFxSymbol);
+    const rate = Number(result.regularMarketPrice || 0);
+    if (rate > 0) return { rate, source: 'yahoo' };
+  } catch (error) {
+    console.error(`Yahoo ${yahooFxSymbol} error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    const rateRes = await fetch("https://open.er-api.com/v6/latest/USD", { cache: 'no-store' });
+    if (rateRes.ok) {
+      const rateData = await rateRes.json();
+      const usdToTwd = Number(rateData?.rates?.TWD || 0);
+      const usdToFx = Number(rateData?.rates?.[erApiCurrency] || 0);
+      if (usdToTwd > 0 && usdToFx > 0) return { rate: usdToTwd / usdToFx, source: 'er-api' };
+    }
+  } catch (error) {
+    console.error(`er-api fallback error for ${erApiCurrency}: ${error instanceof Error ? error.message : String(error)}`);
   }
   return null;
 }
@@ -330,6 +373,16 @@ export async function GET(request: NextRequest) {
     console.log(`[Rate] USD/TWD = ${usdToTwdRate} (source: ${rateResult!.source})`);
   }
 
+  const jpyRateResult = await getFxToTwdRate(yahoo, 'JPYTWD=X', 'JPY');
+  const jpyToTwdRate = jpyRateResult?.rate ?? null;
+  if (jpyToTwdRate) console.log(`[Rate] JPY/TWD = ${jpyToTwdRate} (source: ${jpyRateResult!.source})`);
+
+  const krwRateResult = await getFxToTwdRate(yahoo, 'KRWTWD=X', 'KRW');
+  const krwToTwdRate = krwRateResult?.rate ?? null;
+  if (krwToTwdRate) console.log(`[Rate] KRW/TWD = ${krwToTwdRate} (source: ${krwRateResult!.source})`);
+
+  const twdRateByCategory: Record<string, number | null> = { US_STOCK: usdToTwdRate, JAPAN_STOCK: jpyToTwdRate, KOREA_STOCK: krwToTwdRate };
+
   // ─── 手動帳戶（台股、美股、加密貨幣）───────────────────────────
   // 同一輪同步中，不論有多少個帳戶／使用者持有同一檔 symbol，都只查一次報價並共用結果，
   // 避免使用者數量增長後對報價來源的請求量隨帳戶數線性放大而被限流／封鎖。
@@ -339,7 +392,7 @@ export async function GET(request: NextRequest) {
       where: {
         isActive: true,
         isApiConnected: false,
-        category: { in: ['TAIWAN_STOCK', 'US_STOCK', 'CRYPTO'] },
+        category: { in: ['TAIWAN_STOCK', 'US_STOCK', 'JAPAN_STOCK', 'KOREA_STOCK', 'CRYPTO'] },
         ...proOnlyFilter,
       },
       orderBy: { createdAt: 'asc' },
@@ -395,12 +448,13 @@ export async function GET(request: NextRequest) {
           currentPrice = marketPrice;
           currentValue = (account.quantity || 0) * currentPrice;
         } else {
-          if (!usdToTwdRate) {
-            results.errors.push(`Skipped ${account.symbol}: no USD/TWD rate available`);
+          const twdRate = twdRateByCategory[account.category];
+          if (!twdRate) {
+            results.errors.push(`Skipped ${account.symbol}: no ${account.category} → TWD rate available`);
             continue;
           }
           currentPrice = marketPrice;
-          currentValue = (account.quantity || 0) * currentPrice * usdToTwdRate;
+          currentValue = (account.quantity || 0) * currentPrice * twdRate;
         }
 
         await prisma.account.update({
