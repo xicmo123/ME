@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield, Lock, Crown } from "lucide-react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield, Lock, Infinity as InfinityIcon, Sparkles } from "lucide-react";
 import { isNative, startOAuth, getPurchasePlans, purchasePlan, restorePurchases } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -176,29 +176,34 @@ export function SettingsTab({
       </div>
       <button
         onClick={() => setShowPlanDetails(true)}
-        className="w-full text-left relative overflow-hidden rounded-[24px] p-5 transition-transform active:scale-[0.99] cursor-pointer"
+        className="w-full text-left relative overflow-hidden rounded-[24px] p-5 pb-6 transition-transform active:scale-[0.99] cursor-pointer"
         style={{ background: hero.background, color: hero.text, boxShadow: `${hero.shadow}, ${hero.ring}` }}
       >
-        {/* 右下角的大皇冠徽章：半圓形底座卡在卡片邊角，呼應「Pro／已是 Pro」的尊榮感 */}
+        {/* 兩色暈染：主色底 + 一顆柔和的品牌綠光暈，呼應「無限帳戶／無限目標」給的尊榮感，不是單調色塊 */}
         <div
-          className="absolute -right-5 -bottom-5 h-28 w-28 rounded-full flex items-center justify-center pointer-events-none"
-          style={{ background: hero.chipBtnBg }}
-        >
-          <Crown className="h-12 w-12 -translate-x-1.5 -translate-y-1.5" style={{ color: hero.text }} fill={hero.text} fillOpacity={0.9} strokeWidth={1.25} />
+          className="absolute -left-12 -top-20 h-64 w-64 rounded-full pointer-events-none"
+          style={{ background: `radial-gradient(circle, #4F7B5E${isDarkMode ? "4D" : "38"} 0%, transparent 68%)` }}
+        />
+        <div className="relative flex items-center gap-2 mb-2.5">
+          <span className="font-display text-lg font-bold tracking-tight">Zeno</span>
+          <span className="text-[10px] font-bold tracking-[0.2em] uppercase px-2 py-0.5 rounded-full" style={{ background: hero.plusBg, color: hero.plusText }}>
+            PRO
+          </span>
         </div>
-        <div className="relative flex items-center gap-2 mb-2">
-          <span className="font-display text-base font-bold tracking-tight">Zeno</span>
-          <span className="font-mono-ledger text-[10px] font-bold tracking-[0.2em] uppercase opacity-70">Pro</span>
-        </div>
-        <p className="relative text-[15px] font-bold leading-snug max-w-[70%]">
+        <p className="relative text-[15px] font-bold leading-snug max-w-[72%]">
           {isPro ? "你已解鎖 Zeno Pro，感謝支持！" : "升級成 Zeno Pro 版"}
         </p>
-        <p className="relative text-xs opacity-75 mt-1 max-w-[65%] leading-relaxed">
+        <p className="relative text-xs opacity-75 mt-1 max-w-[68%] leading-relaxed">
           {isPro ? "所有進階功能已完整開放，持續優化中" : "無限帳戶、無限目標，完整掌控你的資產"}
         </p>
         <div className="relative flex items-center gap-1 mt-3.5 text-xs font-semibold">
           <span>{isPro ? "查看方案內容" : "查看方案與升級選項"}</span>
           <ChevronRight className="h-3.5 w-3.5" />
+        </div>
+        {/* 無限帳戶／無限目標 → 無限符號 + 星芒點綴，放在右下角當視覺收尾 */}
+        <div className="absolute bottom-5 right-5 pointer-events-none">
+          <InfinityIcon className="h-10 w-16" style={{ color: hero.text }} strokeWidth={2.5} />
+          <Sparkles className="h-4 w-4 absolute -top-2.5 -right-1.5" style={{ color: hero.text }} strokeWidth={2} fill={hero.text} fillOpacity={0.85} />
         </div>
       </button>
       <div className={`${surface} rounded-2xl overflow-hidden`}>

@@ -1569,13 +1569,13 @@ export default function HomePage() {
           <div className="px-5 pt-5 pb-4 max-w-lg mx-auto space-y-6">
             {/* 問候列 */}
             <div className="flex items-center justify-between gap-3">
-              <div className="shrink-0">
+              <div className="min-w-0">
                 <h1 className="font-display text-[22px] font-bold leading-tight tracking-tight" style={{ color: gold }}>Zeno</h1>
-              </div>
-              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-                <p className={`min-w-0 truncate text-right font-mono-ledger text-[11px] font-medium tabular-nums ${textMuted}`}>
+                <p className={`mt-0.5 min-w-0 truncate font-mono-ledger text-[11px] font-medium tabular-nums ${textMuted}`}>
                   {todayLabel} · 最近更新時間 {dataHealth.lastSync ? dataHealth.lastSync.toLocaleString("zh-TW", { hour: "2-digit", minute: "2-digit" }) : "尚無"}
                 </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
                 <button onClick={toggleHideBalance} aria-label={hideBalance ? "顯示金額" : "隱藏金額"} className={`${iconBtn} ${textMuted} hover:text-[#B8933C]`}>
                   {hideBalance ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                 </button>
@@ -1906,6 +1906,9 @@ export default function HomePage() {
           <div className="px-5 pt-5 pb-4 max-w-lg mx-auto space-y-4">
             <div className="flex items-center justify-between pb-2">
               <h2 className="font-display text-[22px] font-bold tracking-tight">行事曆</h2>
+              <button onClick={() => { void hapticImpact("light"); setShowQuickAdd(true); }} aria-label="新增" className={`${iconBtn} ${textMuted} hover:text-[#B8933C]`}>
+                <Plus className="h-[18px] w-[18px]" />
+              </button>
             </div>
             {(
               heldStockSymbols.length === 0 ? (
