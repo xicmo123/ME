@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield, Lock } from "lucide-react";
+import { Moon, Sun, RefreshCw, TrendingUp, ChevronRight, Download, Fingerprint, Bell, LogOut, AlertTriangle, X, Archive, FileText, Shield, Lock, Crown } from "lucide-react";
 import { isNative, startOAuth, getPurchasePlans, purchasePlan, restorePurchases } from "@/lib/native";
 import { GoogleIcon, AppleIcon } from "@/components/icons";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -179,14 +179,21 @@ export function SettingsTab({
         className="w-full text-left relative overflow-hidden rounded-[24px] p-5 transition-transform active:scale-[0.99] cursor-pointer"
         style={{ background: hero.background, color: hero.text, boxShadow: `${hero.shadow}, ${hero.ring}` }}
       >
+        {/* 右下角的大皇冠徽章：半圓形底座卡在卡片邊角，呼應「Pro／已是 Pro」的尊榮感 */}
+        <div
+          className="absolute -right-5 -bottom-5 h-28 w-28 rounded-full flex items-center justify-center pointer-events-none"
+          style={{ background: hero.chipBtnBg }}
+        >
+          <Crown className="h-12 w-12 -translate-x-1.5 -translate-y-1.5" style={{ color: hero.text }} fill={hero.text} fillOpacity={0.9} strokeWidth={1.25} />
+        </div>
         <div className="relative flex items-center gap-2 mb-2">
           <span className="font-display text-base font-bold tracking-tight">Zeno</span>
           <span className="font-mono-ledger text-[10px] font-bold tracking-[0.2em] uppercase opacity-70">Pro</span>
         </div>
-        <p className="relative text-[15px] font-bold leading-snug max-w-[85%]">
+        <p className="relative text-[15px] font-bold leading-snug max-w-[70%]">
           {isPro ? "你已解鎖 Zeno Pro，感謝支持！" : "升級成 Zeno Pro 版"}
         </p>
-        <p className="relative text-xs opacity-75 mt-1 max-w-[80%] leading-relaxed">
+        <p className="relative text-xs opacity-75 mt-1 max-w-[65%] leading-relaxed">
           {isPro ? "所有進階功能已完整開放，持續優化中" : "無限帳戶、無限目標，完整掌控你的資產"}
         </p>
         <div className="relative flex items-center gap-1 mt-3.5 text-xs font-semibold">

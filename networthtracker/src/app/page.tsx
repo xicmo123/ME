@@ -1568,12 +1568,12 @@ export default function HomePage() {
         {activeTab === "overview" && (
           <div className="px-5 pt-5 pb-4 max-w-lg mx-auto space-y-6">
             {/* 問候列 */}
-            <div className="flex items-center justify-between">
-              <div className="min-w-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="shrink-0">
                 <h1 className="font-display text-[22px] font-bold leading-tight tracking-tight" style={{ color: gold }}>Zeno</h1>
               </div>
-              <div className="flex min-w-0 shrink-0 items-center gap-2">
-                <p className={`min-w-0 text-right font-mono-ledger text-[11px] font-medium tabular-nums ${textMuted}`}>
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                <p className={`min-w-0 truncate text-right font-mono-ledger text-[11px] font-medium tabular-nums ${textMuted}`}>
                   {todayLabel} · 最近更新時間 {dataHealth.lastSync ? dataHealth.lastSync.toLocaleString("zh-TW", { hour: "2-digit", minute: "2-digit" }) : "尚無"}
                 </p>
                 <button onClick={toggleHideBalance} aria-label={hideBalance ? "顯示金額" : "隱藏金額"} className={`${iconBtn} ${textMuted} hover:text-[#B8933C]`}>
@@ -1626,14 +1626,6 @@ export default function HomePage() {
                   >
                     <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
                   </button>
-                  <button
-                    onClick={() => { resetForm(); setShowForm(true); }}
-                    aria-label="新增資產"
-                    className="h-10 w-10 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-                    style={{ background: HERO_THEMES[heroTheme].plusBg, color: HERO_THEMES[heroTheme].plusText }}
-                  >
-                    <Plus className="h-5 w-5" />
-                  </button>
                 </div>
               </div>
               <div className="flex items-baseline gap-2 mt-1 min-w-0">
@@ -1662,22 +1654,22 @@ export default function HomePage() {
                   <span className="min-w-0 max-w-full break-words rounded-full border px-2.5 py-1" style={{ borderColor: `${HERO_THEMES[heroTheme].assetBorder}59`, background: `${HERO_THEMES[heroTheme].assetBorder}1A`, color: HERO_THEMES[heroTheme].assetBorder }}>
                     資產 {!accountsLoaded ? "…" : hideBalance ? "••••" : fmtMoney(summary.totalAssets)}
                   </span>
-                  <span className="min-w-0 max-w-full break-words rounded-full border px-2.5 py-1" style={{ borderColor: `${HERO_THEMES[heroTheme].liabilityBorder}59`, background: `${HERO_THEMES[heroTheme].liabilityBorder}1A`, color: HERO_THEMES[heroTheme].liabilityBorder }}>
-                    負債 {!accountsLoaded ? "…" : hideBalance ? "••••" : fmtMoney(summary.totalLiabilities)}
-                  </span>
+                  <button
+                    onClick={toggleDisplayCurrency}
+                    disabled={!exchangeRate}
+                    className="w-fit max-w-full shrink-0 rounded-full border px-2.5 py-1 text-left active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-40"
+                    style={
+                      displayCurrency === "USD"
+                        ? { borderColor: HERO_THEMES[heroTheme].toggleActiveBg, background: HERO_THEMES[heroTheme].toggleActiveBg, color: HERO_THEMES[heroTheme].toggleActiveText }
+                        : { borderColor: HERO_THEMES[heroTheme].toggleIdleBorder, background: HERO_THEMES[heroTheme].toggleIdleBg, color: HERO_THEMES[heroTheme].toggleIdleText }
+                    }
+                  >
+                    {displayCurrency === "USD" ? "US$ 檢視中" : `USD/TWD ${exchangeRate?.toFixed(2) || "—"}`}
+                  </button>
                 </div>
-                <button
-                  onClick={toggleDisplayCurrency}
-                  disabled={!exchangeRate}
-                  className="w-fit max-w-full shrink-0 rounded-full border px-2.5 py-1 text-left active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-40"
-                  style={
-                    displayCurrency === "USD"
-                      ? { borderColor: HERO_THEMES[heroTheme].toggleActiveBg, background: HERO_THEMES[heroTheme].toggleActiveBg, color: HERO_THEMES[heroTheme].toggleActiveText }
-                      : { borderColor: HERO_THEMES[heroTheme].toggleIdleBorder, background: HERO_THEMES[heroTheme].toggleIdleBg, color: HERO_THEMES[heroTheme].toggleIdleText }
-                  }
-                >
-                  {displayCurrency === "USD" ? "US$ 檢視中" : `USD/TWD ${exchangeRate?.toFixed(2) || "—"}`}
-                </button>
+                <span className="w-fit max-w-full shrink-0 break-words rounded-full border px-2.5 py-1" style={{ borderColor: `${HERO_THEMES[heroTheme].liabilityBorder}59`, background: `${HERO_THEMES[heroTheme].liabilityBorder}1A`, color: HERO_THEMES[heroTheme].liabilityBorder }}>
+                  負債 {!accountsLoaded ? "…" : hideBalance ? "••••" : fmtMoney(summary.totalLiabilities)}
+                </span>
               </div>
             </div>
 
@@ -2244,16 +2236,6 @@ export default function HomePage() {
                 </div>
               )}
             </div>
-
-            {/* 近期紀錄：記帳/自動扣款 + 帳戶新增/編輯/封存/刪除，跟總覽頁的近期紀錄彈窗共用同一份資料與渲染邏輯 */}
-            {combinedActivity.length > 0 && (
-              <div className={`${surface} rounded-2xl p-4`}>
-                <p className={`${cardTitle} mb-2`}>近期紀錄</p>
-                <div className="divide-y divide-black/[0.05] dark:divide-white/[0.05]">
-                  {combinedActivity.slice(0, 8).map(renderActivityRow)}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -2333,8 +2315,8 @@ export default function HomePage() {
       {showQuickAdd && (
         <>
           <div className="fixed inset-0 z-30 bg-black/30" onClick={() => setShowQuickAdd(false)} />
-          <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[45] w-56" style={{ marginBottom: "env(safe-area-inset-bottom)" }}>
-            <div className={`${surface} rounded-[20px] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.05] shadow-2xl`}>
+          <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[45] w-56 max-h-[60vh]" style={{ marginBottom: "env(safe-area-inset-bottom)" }}>
+            <div className={`${surface} rounded-[20px] overflow-y-auto max-h-[60vh] divide-y divide-black/[0.05] dark:divide-white/[0.05] shadow-2xl`}>
               {[
                 { label: "記帳", icon: Receipt, run: () => { setBookkeepingForm({ description: "", amount: "", type: "WITHDRAWAL", accountId: "", date: todayStr }); setShowBookkeepingForm(true); } },
                 { label: "新增資產", icon: Wallet, run: () => { resetForm(); setShowForm(true); } },
