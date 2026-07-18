@@ -7,6 +7,7 @@ import { getUserIdFromRequest } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan";
 import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitlements";
+import { logActivity } from "@/lib/activity";
 
 
 import { prisma } from "@/lib/prisma";
@@ -289,6 +290,8 @@ export async function POST(request: NextRequest) {
       deductFromAccountId: deductFromAccountIdValue,
     },
   });
+
+  void logActivity(userId, "ACCOUNT_CREATED", `新增${type === "LIABILITY" ? "負債" : "資產"}「${account.name}」`, currentValueValue);
 
   const { apiKey: _apiKey, apiSecret: _apiSecret, apiPassphrase: _apiPassphrase, ...sanitizedAccount } = account;
   return NextResponse.json({ ...sanitizedAccount, hasApiCredentials: Boolean(account.apiKey && account.apiSecret) }, { status: 201 });

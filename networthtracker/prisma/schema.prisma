@@ -100,6 +100,7 @@ model User {
   transactions  Transaction[]
   goals         Goal[]
   syncLogs      SyncLog[]
+  activityLogs  ActivityLog[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -170,6 +171,29 @@ model Transaction {
   @@index([accountId])
   @@index([type])
   @@index([date])
+}
+
+enum ActivityType {
+  ACCOUNT_CREATED
+  ACCOUNT_UPDATED
+  ACCOUNT_ARCHIVED
+  ACCOUNT_RESTORED
+  ACCOUNT_DELETED
+}
+
+// 帳戶本身的新增／編輯／封存／刪除紀錄；金錢進出（記帳、自動扣款…）已經有 Transaction 記錄，這裡只補帳戶異動這塊空白，
+// 「近期紀錄」彈窗把兩張表依時間合併顯示。
+model ActivityLog {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        ActivityType
+  description String
+  amount      Float?
+  createdAt   DateTime     @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model AssetHistory {

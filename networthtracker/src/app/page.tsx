@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
-import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw, Crown, Home, Plane, Car, GraduationCap, PiggyBank, Heart, Briefcase, Target, Landmark, Bitcoin, Building2, HandCoins, Receipt, CreditCard } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Plus, X, Sun, Moon, Wallet, Eye, EyeOff, LayoutDashboard, CalendarDays, TrendingUp, Settings, ChevronRight, AlertTriangle, Fingerprint, Search, Lock, Archive, RotateCcw, Crown, Home, Plane, Car, GraduationCap, PiggyBank, Heart, Briefcase, Target, Landmark, Bitcoin, Building2, HandCoins, Receipt, CreditCard, NotebookText } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TW_BANKS } from "@/lib/tw-banks";
 import { HERO_THEMES } from "@/lib/hero-theme";
@@ -66,6 +66,22 @@ const BENCHMARKS: Record<string, { label: string; color: string }> = {
   nasdaq: { label: "那斯達克", color: "#9467BD" }, // 紫
   taiex: { label: "加權指數", color: "#D62728" }, // 紅
   btc: { label: "比特幣", color: "#17BECF" }, // 青
+};
+
+// 「近期紀錄」共用的標籤／顏色表：Transaction 的類型（記帳、自動扣款…）跟 ActivityLog 的類型（新增/編輯/封存/刪除帳戶）
+// 混在同一份，因為兩張表的資料會被合併成一份時間軸顯示（見 combinedActivity）。
+const ACTIVITY_META: Record<string, { label: string; sign: "+" | "−" | ""; color: string }> = {
+  DEPOSIT: { label: "存入", sign: "+", color: "#4F7B5E" },
+  WITHDRAWAL: { label: "轉出", sign: "−", color: "#A24936" },
+  BUY: { label: "買入", sign: "−", color: "#5A7DA0" },
+  SELL: { label: "賣出", sign: "+", color: "#4F7B5E" },
+  LOAN_PAYMENT: { label: "還款", sign: "−", color: "#B8933C" },
+  AUTO_DEDUCTION: { label: "自動扣款", sign: "−", color: "#B8933C" },
+  ACCOUNT_CREATED: { label: "新增", sign: "", color: "#4F7B5E" },
+  ACCOUNT_UPDATED: { label: "編輯", sign: "", color: "#5A7DA0" },
+  ACCOUNT_ARCHIVED: { label: "封存", sign: "", color: "#A24936" },
+  ACCOUNT_RESTORED: { label: "復原", sign: "", color: "#4F7B5E" },
+  ACCOUNT_DELETED: { label: "刪除", sign: "", color: "#A24936" },
 };
 
 // 降級後超過免費方案上限的既有項目：保留資料不刪，但蓋上霧面遮罩＋鎖頭，點擊導去設定頁看方案
@@ -167,6 +183,12 @@ export default function HomePage() {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [historyFormData, setHistoryFormData] = useState({ date: "", netWorth: "" });
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  const [showActivityLog, setShowActivityLog] = useState(false);
+  const [showBookkeepingForm, setShowBookkeepingForm] = useState(false);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [bookkeepingForm, setBookkeepingForm] = useState({ description: "", amount: "", type: "WITHDRAWAL" as "WITHDRAWAL" | "DEPOSIT", accountId: "", date: todayStr });
+  const [bookkeepingLoading, setBookkeepingLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [goals, setGoals] = useState<any[]>([]);
   const [showGoalForm, setShowGoalForm] = useState(false);
@@ -506,7 +528,7 @@ export default function HomePage() {
             if (data?.processed?.length) showToast(`已自動記錄 ${data.processed.length} 筆本月定期扣款`);
           }
         } catch { }
-        const [accountsOk] = await Promise.all([fetchAccounts(), fetchTransactions(), fetchExchangeRate(), fetchGoals(), fetchSyncStatus()]);
+        const [accountsOk] = await Promise.all([fetchAccounts(), fetchTransactions(), fetchActivityLogs(), fetchExchangeRate(), fetchGoals(), fetchSyncStatus()]);
         setAccountsLoaded(true);
         if (!accountsOk) showToast("資產資料讀取失敗，目前畫面可能不是最新狀態", "error");
         // 每次進入 App 都記錄「今天」的淨資產快照，讓歷史逐日累積（否則走勢圖只有今天一個點）
@@ -715,6 +737,7 @@ export default function HomePage() {
   async function fetchAccounts() { try { const res = await fetch("/api/accounts"); if (res.ok) { setAccounts(await res.json()); return true; } return false; } catch (e) { return false; } }
   async function fetchHistory() { try { const res = await fetch("/api/history"); if (res.ok) { setHistory(await res.json()); return true; } return false; } catch (e) { return false; } }
   async function fetchTransactions() { try { const res = await fetch("/api/transactions"); if (res.ok) setTransactions(await res.json()); } catch (e) { } }
+  async function fetchActivityLogs() { try { const res = await fetch("/api/activity"); if (res.ok) setActivityLogs(await res.json()); } catch (e) { } }
   async function fetchExchangeRate() { try { const res = await fetch("/api/exchange-rate", { cache: "no-store" }); if (res.ok) { const d = await res.json(); if (d?.rate) setExchangeRate(d.rate); } } catch (e) { } }
 
   async function fetchGoals() { try { const res = await fetch("/api/goals"); if (res.ok) setGoals(await res.json()); } catch (e) { } }
@@ -774,7 +797,7 @@ export default function HomePage() {
         throw new Error(data?.message || "儲存失敗");
       }
       setTimeout(() => resetForm(), 500);
-      await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchGoals()]);
+      await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchGoals(), fetchActivityLogs()]);
       showToast(editingAccountId ? "資產已更新" : "資產已新增");
     } catch (err) {
       const message = err instanceof Error ? err.message : "儲存發生錯誤。";
@@ -792,7 +815,7 @@ export default function HomePage() {
     try {
       if (itemDeleteTarget.kind === "account") {
         await fetch(`/api/accounts/${itemDeleteTarget.id}`, { method: "DELETE" });
-        await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchGoals()]);
+        await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchGoals(), fetchActivityLogs()]);
         showToast(`已封存「${itemDeleteTarget.name}」，可在設定頁的「已封存帳戶」中復原`);
       } else {
         await fetch(`/api/goals?id=${itemDeleteTarget.id}`, { method: "DELETE" });
@@ -830,7 +853,7 @@ export default function HomePage() {
       });
       if (!res.ok) throw new Error("restore failed");
       setArchivedAccounts((prev) => prev.filter((a) => a.id !== accountId));
-      await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions()]);
+      await Promise.allSettled([fetchAccounts(), fetchHistory(), fetchTransactions(), fetchActivityLogs()]);
       showToast(`已復原「${name}」`);
     } catch (e) {
       showToast("復原失敗，請再試一次", "error");
@@ -846,6 +869,7 @@ export default function HomePage() {
       if (!res.ok) throw new Error("delete failed");
       setArchivedAccounts((prev) => prev.filter((a) => a.id !== accountId));
       setArchivedDeleteTarget(null);
+      void fetchActivityLogs();
       showToast(`已永久刪除「${name}」`);
     } catch (e) {
       showToast("刪除失敗，請再試一次", "error");
@@ -924,6 +948,28 @@ export default function HomePage() {
       const res = await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(historyFormData) });
       if (res.ok) { setShowHistoryForm(false); await fetchHistory(); }
     } catch (e) { } finally { setHistoryLoading(false); }
+  }
+
+  async function handleBookkeepingSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!bookkeepingForm.accountId || !bookkeepingForm.amount) return;
+    setBookkeepingLoading(true);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...bookkeepingForm, amount: Number(bookkeepingForm.amount) }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.message || "記帳失敗");
+      }
+      setShowBookkeepingForm(false);
+      await Promise.allSettled([fetchAccounts(), fetchTransactions()]);
+      showToast("記帳成功");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "記帳發生錯誤。", "error");
+    } finally { setBookkeepingLoading(false); }
   }
 
   function formatCurrency(value: number) { return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
@@ -1082,6 +1128,17 @@ export default function HomePage() {
     : timeframe === "month" ? "六個月"
     : timeframe === "year" ? "一年"
     : customRange ? `${customRange.start.slice(5).replace("-", "/")} ～ ${customRange.end.slice(5).replace("-", "/")}` : "自訂";
+
+  // periodStats 只反映「實際有記錄」的天數；帳戶剛開始追蹤時，即使切到六個月／一年，
+  // 涵蓋範圍仍受限於最早的快照日，跟選取的時間範圍不同，容易讓人以為切換沒有生效
+  const periodCoverageNote = useMemo(() => {
+    if (!periodStats || chartData.length === 0) return null;
+    const windowStart = chartData[0].date;
+    if (periodStats.first.date > windowStart) {
+      return `目前僅追蹤到 ${periodStats.first.label || periodStats.first.date}，尚未累積滿整個「${timeframeLabel}」區間`;
+    }
+    return null;
+  }, [periodStats, chartData, timeframeLabel]);
 
   const compareMode = activeBenchmarks.length > 0;
 
@@ -1266,6 +1323,46 @@ export default function HomePage() {
     }
     return basis;
   }, [transactions]);
+
+  // 「近期紀錄」：記帳/自動扣款等金錢異動（transactions）跟帳戶新增/編輯/封存/刪除（activityLogs）
+  // 兩張表依時間合併成一條時間軸，走勢頁卡片跟總覽的近期紀錄彈窗共用同一份。
+  const combinedActivity = useMemo(() => {
+    const txItems = transactions.map((tx: any) => ({
+      kind: "tx" as const, id: `tx-${tx.id}`, type: tx.type, date: tx.date, amount: tx.amount,
+      description: tx.description, accountName: tx.account?.name, quantity: tx.quantity, price: tx.price,
+    }));
+    const logItems = activityLogs.map((log: any) => ({
+      kind: "log" as const, id: `log-${log.id}`, type: log.type, date: log.createdAt, amount: log.amount,
+      description: log.description, accountName: null, quantity: null, price: null,
+    }));
+    return [...txItems, ...logItems].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [transactions, activityLogs]);
+
+  function renderActivityRow(item: (typeof combinedActivity)[number]) {
+    const m = ACTIVITY_META[item.type] ?? { label: item.type, sign: "" as const, color: "#8A8F82" };
+    const primary = item.description || item.accountName || "—";
+    const secondary = item.description && item.accountName ? item.accountName : null;
+    return (
+      <div key={item.id} className="flex items-center gap-3 py-2.5">
+        <span className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0" style={{ color: m.color, background: `${m.color}1A` }}>{m.label}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium truncate">{primary}</p>
+          <p className={`text-xs ${textMuted} truncate`}>
+            {String(item.date).slice(0, 10)}
+            {secondary && <span> · {secondary}</span>}
+            {item.type === "AUTO_DEDUCTION" && item.price != null && (
+              <span> · 本金 {formatCurrency(Number(item.quantity ?? 0))} · 利息 {formatCurrency(Number(item.price))}</span>
+            )}
+          </p>
+        </div>
+        {item.amount != null && (
+          <span className="font-mono-ledger text-xs font-bold shrink-0" style={{ color: m.color }}>
+            {hideBalance ? "••••" : `${m.sign}NT$ ${formatCurrency(Number(item.amount))}`}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   const renderedAccountGroups = useMemo(() => {
     return accountGroups.map(group => {
@@ -1507,6 +1604,16 @@ export default function HomePage() {
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setShowActivityLog(true)}
+                    aria-label="近期紀錄"
+                    className="h-9 w-9 rounded-full flex items-center justify-center active:scale-95 transition-all"
+                    style={{ background: HERO_THEMES[heroTheme].chipBtnBg }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = HERO_THEMES[heroTheme].chipBtnBgHover)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = HERO_THEMES[heroTheme].chipBtnBg)}
+                  >
+                    <NotebookText className="h-4 w-4" />
+                  </button>
                   <button
                     onClick={handleSyncPrices}
                     disabled={syncing}
@@ -1919,9 +2026,12 @@ export default function HomePage() {
                   <span className={`text-xs ${textMuted}`}>{timeframeLabel}</span>
                 </div>
                 {/* 明確標出「本期」指的是哪個區間，避免跟「本期變化/日均變化」的定義兜不起來 */}
-                <p className={`text-xs mb-2 ${textMuted}`}>
+                <p className={`text-xs ${periodCoverageNote ? "mb-1" : "mb-2"} ${textMuted}`}>
                   區間：{periodStats.first.label || periodStats.first.date} → {periodStats.last.label || periodStats.last.date}（共 {periodStats.days} 天）
                 </p>
+                {periodCoverageNote && (
+                  <p className="text-xs mb-2" style={{ color: gold }}>{periodCoverageNote}</p>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <p className={`text-xs ${textMuted}`}>本期變化<span className="opacity-70">（區間末－區間初）</span></p>
@@ -2135,39 +2245,12 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* 近期交易紀錄 */}
-            {transactions.length > 0 && (
+            {/* 近期紀錄：記帳/自動扣款 + 帳戶新增/編輯/封存/刪除，跟總覽頁的近期紀錄彈窗共用同一份資料與渲染邏輯 */}
+            {combinedActivity.length > 0 && (
               <div className={`${surface} rounded-2xl p-4`}>
                 <p className={`${cardTitle} mb-2`}>近期紀錄</p>
                 <div className="divide-y divide-black/[0.05] dark:divide-white/[0.05]">
-                  {transactions.slice(0, 8).map((tx: any) => {
-                    const meta: Record<string, { label: string; sign: "+" | "−"; color: string }> = {
-                      DEPOSIT: { label: "存入", sign: "+", color: "#4F7B5E" },
-                      WITHDRAWAL: { label: "轉出", sign: "−", color: "#A24936" },
-                      BUY: { label: "買入", sign: "−", color: "#5A7DA0" },
-                      SELL: { label: "賣出", sign: "+", color: "#4F7B5E" },
-                      LOAN_PAYMENT: { label: "還款", sign: "−", color: "#B8933C" },
-                      AUTO_DEDUCTION: { label: "自動扣款", sign: "−", color: "#B8933C" },
-                    };
-                    const m = meta[tx.type] ?? { label: tx.type, sign: "−" as const, color: "#8A8F82" };
-                    return (
-                      <div key={tx.id} className="flex items-center gap-3 py-2.5">
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0" style={{ color: m.color, background: `${m.color}1A` }}>{m.label}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{tx.account?.name ?? tx.description ?? "—"}</p>
-                          <p className={`text-xs ${textMuted}`}>
-                            {String(tx.date).slice(0, 10)}
-                            {tx.type === "AUTO_DEDUCTION" && tx.price != null && (
-                              <span> · 本金 {formatCurrency(Number(tx.quantity ?? 0))} · 利息 {formatCurrency(Number(tx.price))}</span>
-                            )}
-                          </p>
-                        </div>
-                        <span className="font-mono-ledger text-xs font-bold shrink-0" style={{ color: m.color }}>
-                          {hideBalance ? "••••" : `${m.sign}NT$ ${formatCurrency(Number(tx.amount))}`}
-                        </span>
-                      </div>
-                    );
-                  })}
+                  {combinedActivity.slice(0, 8).map(renderActivityRow)}
                 </div>
               </div>
             )}
@@ -2253,6 +2336,7 @@ export default function HomePage() {
           <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[45] w-56" style={{ marginBottom: "env(safe-area-inset-bottom)" }}>
             <div className={`${surface} rounded-[20px] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.05] shadow-2xl`}>
               {[
+                { label: "記帳", icon: Receipt, run: () => { setBookkeepingForm({ description: "", amount: "", type: "WITHDRAWAL", accountId: "", date: todayStr }); setShowBookkeepingForm(true); } },
                 { label: "新增資產", icon: Wallet, run: () => { resetForm(); setShowForm(true); } },
                 { label: "新增負債", icon: AlertTriangle, run: () => { resetForm(); setFormData((f: any) => ({ ...f, type: "LIABILITY", category: "PAYABLE" })); setShowForm(true); } },
                 { label: "新增目標", icon: TrendingUp, run: () => { setEditingGoal(null); setGoalForm({ name: "", targetAmount: "", type: "NET_WORTH", accountId: "", emoji: "" }); setShowGoalForm(true); } },
@@ -2615,6 +2699,80 @@ export default function HomePage() {
                   {historyLoading ? "處理中…" : "確認補登"}
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 記帳 Modal：支出／收入 + 扣款帳戶 */}
+      {showBookkeepingForm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl`}>
+            <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5">
+              <h2 className="font-display text-base font-semibold">記帳</h2>
+              <button onClick={() => setShowBookkeepingForm(false)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5">
+              <form onSubmit={handleBookkeepingSubmit} className="space-y-5">
+                <div className="flex rounded-xl overflow-hidden border border-black/[0.08] dark:border-white/[0.08]">
+                  {([["WITHDRAWAL", "支出"], ["DEPOSIT", "收入"]] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setBookkeepingForm((f) => ({ ...f, type: key }))}
+                      className="flex-1 py-2.5 text-sm font-semibold transition-colors"
+                      style={bookkeepingForm.type === key ? { background: gold, color: "#241B06" } : undefined}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>說明</label>
+                  <input type="text" placeholder="例如：午餐、薪水" value={bookkeepingForm.description} onChange={(e) => setBookkeepingForm({ ...bookkeepingForm, description: e.target.value })} className={inputCls} />
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>金額 (NT$)</label>
+                  <input type="number" inputMode="decimal" step="any" min="0" placeholder="例如：150" value={bookkeepingForm.amount} onChange={(e) => setBookkeepingForm({ ...bookkeepingForm, amount: e.target.value })} className={`${inputCls} font-mono-ledger`} required />
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>{bookkeepingForm.type === "WITHDRAWAL" ? "扣款帳戶" : "存入帳戶"}</label>
+                  <select value={bookkeepingForm.accountId} onChange={(e) => setBookkeepingForm({ ...bookkeepingForm, accountId: e.target.value })} className={inputCls} required>
+                    <option value="" disabled>請選擇現金／銀行帳戶</option>
+                    {accounts.filter((a: any) => a.isActive && ["CASH", "BANK_ACCOUNT"].includes(a.category)).map((a: any) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-xs mb-2 ${sectionLabel}`}>日期</label>
+                  <input type="date" value={bookkeepingForm.date} max={todayStr} onChange={(e) => setBookkeepingForm({ ...bookkeepingForm, date: e.target.value })} className={`${inputCls} font-mono-ledger`} required />
+                </div>
+                <button type="submit" disabled={bookkeepingLoading} className={btnPrimary}>
+                  {bookkeepingLoading ? "處理中…" : "確認記帳"}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 近期紀錄 Modal：記帳/自動扣款 + 帳戶新增/編輯/封存/刪除，跟走勢頁的近期紀錄卡片共用 combinedActivity/renderActivityRow */}
+      {showActivityLog && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className={`w-full sm:max-w-sm ${surface} sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[85vh] overflow-y-auto`}>
+            <div className="flex items-center justify-between border-b border-black/[0.07] dark:border-white/[0.07] p-5">
+              <h2 className="font-display text-base font-semibold">近期紀錄</h2>
+              <button onClick={() => setShowActivityLog(false)} className={`p-2 ${textMuted}`}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5">
+              {combinedActivity.length > 0 ? (
+                <div className="divide-y divide-black/[0.05] dark:divide-white/[0.05]">
+                  {combinedActivity.slice(0, 20).map(renderActivityRow)}
+                </div>
+              ) : (
+                <p className={`text-sm text-center py-6 ${textMuted}`}>還沒有任何紀錄</p>
+              )}
             </div>
           </div>
         </div>

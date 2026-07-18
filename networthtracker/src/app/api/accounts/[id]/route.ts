@@ -4,6 +4,7 @@ import { getUserIdFromRequest } from "@/lib/auth"
 import { encrypt } from "@/lib/crypto"
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan"
 import { getEntitlementsForUser } from "@/lib/entitlements"
+import { logActivity } from "@/lib/activity"
 
 
 import { prisma } from "@/lib/prisma";
@@ -175,6 +176,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     },
   })
 
+  void logActivity(userId, "ACCOUNT_UPDATED", `編輯「${updatedAccount.name}」`, nextCurrentValue)
+
   const { apiKey: _apiKey, apiSecret: _apiSecret, apiPassphrase: _apiPassphrase, ...sanitizedAccount } = updatedAccount
   return NextResponse.json({ ...sanitizedAccount, hasApiCredentials: Boolean(updatedAccount.apiKey && updatedAccount.apiSecret) }, { status: 200 })
 }
@@ -198,6 +201,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     // Transaction.account 是 onDelete: Cascade，交易紀錄會一併刪除；
     // Transaction.loanAccount（loanAccountId）是 onDelete: SetNull，其他帳戶指向這筆貸款帳戶的扣款紀錄會被清空關聯而不是報錯。
     await prisma.account.delete({ where: { id } })
+    void logActivity(userId, "ACCOUNT_DELETED", `永久刪除「${existingAccount.name}」`)
     return NextResponse.json({ ok: true }, { status: 200 })
   }
 
@@ -205,6 +209,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     where: { id },
     data: { isActive: false, archivedAt: new Date() },
   })
+
+  void logActivity(userId, "ACCOUNT_ARCHIVED", `封存「${updatedAccount.name}」`)
 
   return NextResponse.json(updatedAccount, { status: 200 })
 }
@@ -225,6 +231,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     where: { id },
     data: { isActive: true, archivedAt: null },
   })
+
+  void logActivity(userId, "ACCOUNT_RESTORED", `復原「${updatedAccount.name}」`)
 
   return NextResponse.json(updatedAccount, { status: 200 })
 }
