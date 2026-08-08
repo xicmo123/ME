@@ -1,54 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import YahooFinance from "yahoo-finance2"
 import { getUserIdFromRequest } from "@/lib/auth"
 import { encrypt } from "@/lib/crypto"
 import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan"
 import { getEntitlementsForUser } from "@/lib/entitlements"
 import { logActivity } from "@/lib/activity"
+import { fetchMarketPrice, categoriesRequiringSymbol, fixedValueCategories } from "@/lib/market-price"
 
 
 import { prisma } from "@/lib/prisma";
-
-const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"]
-const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"]
-
-// Yahoo Finance 的市場代碼後綴：台股 .TW、日股 .T、韓股 .KS（KOSDAQ 上市的少數代號可能查不到，屬已知限制）
-const yahooSuffixByCategory: Record<string, string> = { TAIWAN_STOCK: ".TW", JAPAN_STOCK: ".T", KOREA_STOCK: ".KS" }
-// 換算成 TWD 用的匯率代碼（Yahoo「該幣別TWD=X」格式），美股沿用既有的 TWD=X（= USDTWD）
-const fxSymbolByCategory: Record<string, string> = { US_STOCK: "TWD=X", JAPAN_STOCK: "JPYTWD=X", KOREA_STOCK: "KRWTWD=X" }
-
-// 回傳的 price 一律是「該標的原始幣別」的單價（跟帳戶 currency 一致，前端「即時股價」就是顯示這個），
-// value 才是換算成 TWD 後的單價，給呼叫端算 quantity * value = currentValue 用。
-async function fetchMarketPrice(category: string, rawSymbol: string): Promise<{ price: number; value: number }> {
-  const suffix = yahooSuffixByCategory[category]
-  const symbol = suffix && !rawSymbol.toUpperCase().endsWith(suffix)
-    ? rawSymbol.toUpperCase() + suffix
-    : rawSymbol;
-  const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] })
-  if (category === "CRYPTO") {
-    const normalizedSymbol = symbol.toUpperCase()
-    const cryptoResponse = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd")
-    if (!cryptoResponse.ok) throw new Error(`CoinGecko API returned ${cryptoResponse.status}`)
-    const cryptoData = await cryptoResponse.json()
-    const usdPrice =
-      normalizedSymbol === "BTC" || normalizedSymbol === "BITCOIN" ? Number(cryptoData.bitcoin?.usd || 0)
-      : normalizedSymbol === "ETH" || normalizedSymbol === "ETHEREUM" ? Number(cryptoData.ethereum?.usd || 0)
-      : 0
-    if (!usdPrice) throw new Error(`Unsupported or missing crypto price for ${symbol}`)
-    const usdToTwdResult = await yahoo.quote("TWD=X")
-    const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1)
-    return { price: usdPrice, value: usdPrice * usdToTwdRate }
-  }
-  const quoteResult = await yahoo.quote(symbol)
-  const marketPrice = Number(quoteResult.regularMarketPrice || 0)
-  const fxSymbol = fxSymbolByCategory[category]
-  if (fxSymbol) {
-    const fxResult = await yahoo.quote(fxSymbol)
-    const fxRate = Number(fxResult.regularMarketPrice || 1)
-    return { price: marketPrice, value: marketPrice * fxRate }
-  }
-  return { price: marketPrice, value: marketPrice }
-}
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = getUserIdFromRequest(request)
@@ -71,7 +30,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ message: "Please provide name, type, category, and currency." }, { status: 400 })
   }
 
-  const isApiMode = category === "CRYPTO" && Boolean(isApiConnected)
+  // 跟 POST /api/accounts 用同一個判斷。先前這裡多了 `category === "CRYPTO" &&`，
+  // 編輯一個非 crypto 的 API 連接帳戶時 isApiMode 會變成 false，於是下面把 isApiConnected 關掉、
+  // 而且把 apiKey/apiSecret/apiPassphrase 一起寫成 null——使用者只是改個名字，金鑰就沒了。
+  const isApiMode = Boolean(isApiConnected)
   const trimmedSymbol = typeof symbol === "string" ? symbol.trim() : ""
   const fallbackSymbol = (typeof apiSource === "string" ? apiSource.trim() : "") || "BITFINEX"
   const requiresSymbolValidation =
@@ -130,12 +92,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   let nextCurrentPrice = existingAccount.currentPrice ?? 0
   let nextCurrentValue = isApiMode ? 0 : quantityValue
+  let nextDayChangePct: number | null = categoriesRequiringSymbol.includes(category) && !isApiMode ? (existingAccount.dayChangePct ?? null) : null
 
   if (categoriesRequiringSymbol.includes(category) && !isApiMode) {
     try {
-      const { price, value } = await fetchMarketPrice(category, trimmedSymbol)
+      const { price, value, dayChangePct } = await fetchMarketPrice(category, trimmedSymbol)
       nextCurrentPrice = Number(price || 0)
       nextCurrentValue = quantityValue * Number(value || 0)
+      nextDayChangePct = dayChangePct
     } catch (error) {
       console.error("Failed to refresh market price for updated account:", error)
       nextCurrentPrice = existingAccount.currentPrice ?? 0
@@ -151,7 +115,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if (type === "LIABILITY" && loanStartDateValue && deductionDateValue != null && deductionAmountValue != null) {
     const n = calcPaidInstallments(loanStartDateValue, deductionDateValue)
     const cappedN = loanTermMonthsValue != null ? Math.min(n, loanTermMonthsValue) : n
-    nextCurrentValue = calcLoanBalance(quantityValue, deductionAmountValue, interestRateValue, cappedN)
+    nextCurrentValue = calcLoanBalance(quantityValue, deductionAmountValue, interestRateValue, cappedN, {
+      loanStartDate: loanStartDateValue,
+      deductionDate: deductionDateValue,
+      termMonths: loanTermMonthsValue,
+    })
   }
 
   const updatedAccount = await prisma.account.update({
@@ -160,7 +128,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       name: name.trim(), type: type as any, category: category as any,
       symbol: isApiMode ? (trimmedSymbol || fallbackSymbol) : (trimmedSymbol || null),
       quantity: quantityValue, currency: currency as any,
-      currentPrice: nextCurrentPrice, currentValue: nextCurrentValue,
+      currentPrice: nextCurrentPrice, dayChangePct: nextDayChangePct, currentValue: nextCurrentValue,
       isApiConnected: isApiMode,
       apiSource: isApiMode ? (apiSource?.trim() || "BITFINEX") : null,
       // 前端不會再收到明碼，編輯時若欄位留空代表「不變更」，沿用資料庫既有的加密值

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { isTrustedCronRequest } from "@/lib/cron-auth";
-import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitlements";
+import { resolveAccountValue } from "@/lib/loan";
 
 
 import { prisma } from "@/lib/prisma";
@@ -10,13 +10,14 @@ import { prisma } from "@/lib/prisma";
 async function snapshotForUser(userId: string, twDateStr: string, snapshotDate: Date) {
   const accounts = await prisma.account.findMany({ where: { isActive: true, userId } });
 
-  // 降級後被鎖定的帳戶不計入快照，跟即時淨值計算保持一致，避免走勢圖出現「解鎖前」虛高的數字
-  const entitlements = await getEntitlementsForUser(userId);
-  const lockedAccountIds = computeLockedAccountIds(accounts, entitlements.limits.maxAccounts);
-  const unlockedAccounts = accounts.filter((a) => !lockedAccountIds.has(a.id));
-
-  const totalAssets = unlockedAccounts.filter((a) => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
-  const totalLiabilities = unlockedAccounts.filter((a) => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+  // 淨資產一律計入所有啟用中的帳戶，跟訂閱方案無關。
+  // 先前降級（Pro→Free）後被鎖定的帳戶會被排除在淨值之外，使用者打開 App 看到的是一個
+  // 偏低的、錯誤的淨資產——一個財務 App 給錯數字，比擋住功能要傷得多，而且會在走勢圖
+  // 留下一道假的斷崖。鎖定現在只影響「明細檢視／編輯／同步」，不影響任何金額計算。
+  // 貸款餘額用 resolveAccountValue 即時算，不能直接讀 currentValue 欄位——那個欄位每月只在扣款
+  // 當天更新一次，直接拿來記快照的話，走勢圖會跟卡片上的餘額對不起來。
+  const totalAssets = accounts.filter((a) => a.type === "ASSET").reduce((sum, a) => sum + resolveAccountValue(a), 0);
+  const totalLiabilities = accounts.filter((a) => a.type === "LIABILITY").reduce((sum, a) => sum + resolveAccountValue(a), 0);
   const netWorth = totalAssets - totalLiabilities;
 
   const result = await prisma.assetHistory.upsert({

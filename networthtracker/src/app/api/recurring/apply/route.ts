@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { isTrustedCronRequest } from "@/lib/cron-auth";
-import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan";
+import { calcPaidInstallments, calcLoanBalance, taipeiCivilDate } from "@/lib/loan";
 
 import { prisma } from "@/lib/prisma";
 
@@ -52,13 +52,14 @@ export async function POST(request: NextRequest) {
 
 async function applyForUser(userId: string) {
   const today = new Date();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  // 「本月」「今天幾號」一律以台北時間為準。伺服器跑在 UTC，若直接用 today.getMonth()／getDate()，
+  // 台北 00:00~08:00 之間會落在前一天——扣款日 1 號的帳戶會在台北 8/1 凌晨扣款、但存成 UTC 7/31，
+  // 下次再跑時 UTC 的「本月起點」是 8/1，找不到那筆紀錄就又扣了一次（台新(二) 就被重複扣過）。
+  const { year, month, day: todayDay } = taipeiCivilDate(today);
+  // 台北固定 UTC+8 沒有日光節約，直接把台北月初換算回 UTC 時間點來查詢
+  const monthStart = new Date(Date.UTC(year, month - 1, 1) - 8 * 60 * 60 * 1000);
   // 扣款日大於當月天數時（例如設 31 號但當月只有 30 天），視為月底到期
-  const daysInMonth = new Date(
-    today.getFullYear(),
-    today.getMonth() + 1,
-    0,
-  ).getDate();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
   const candidates = await prisma.account.findMany({
     where: {
@@ -73,7 +74,7 @@ async function applyForUser(userId: string) {
 
   for (const acc of candidates) {
     const dueDay = Math.min(acc.deductionDate!, daysInMonth);
-    if (today.getDate() < dueDay) continue;
+    if (todayDay < dueDay) continue;
 
     const alreadyApplied = await prisma.transaction.findFirst({
       where: {
@@ -97,11 +98,13 @@ async function applyForUser(userId: string) {
     if (hasFullLoanInfo) {
       // 有填貸款起算日：本金（quantity）固定不變，餘額改由「本金＋已繳期數」公式即時算出，
       // 這期的本金/利息拆分，直接取算出來的期初/期末餘額差，確保跟卡片上顯示的餘額永遠一致。
-      installmentNo = calcPaidInstallments(
-        new Date(acc.loanStartDate!),
-        acc.deductionDate!,
-        today,
-      );
+      const loanStartDate = new Date(acc.loanStartDate!);
+      const schedule = { loanStartDate, deductionDate: acc.deductionDate!, termMonths: acc.loanTermMonths };
+      installmentNo = calcPaidInstallments(loanStartDate, acc.deductionDate!, today);
+      // 期數繳完就不再扣了。先前沒擋，繳滿 N 期之後每個月還是會產生一筆「本金 0、全額利息」的
+      // 假扣款紀錄，設了扣款來源帳戶的話還會一直把現金扣光。
+      if (acc.loanTermMonths != null && installmentNo > acc.loanTermMonths) continue;
+
       const cappedN =
         acc.loanTermMonths != null
           ? Math.min(installmentNo, acc.loanTermMonths)
@@ -112,15 +115,18 @@ async function applyForUser(userId: string) {
         amount,
         acc.interestRate,
         Math.max(0, cappedN - 1),
+        schedule,
       );
       const balanceAfter = calcLoanBalance(
         principal,
         amount,
         acc.interestRate,
         cappedN,
+        schedule,
       );
       principalPortion = balanceBefore - balanceAfter;
-      interestPortion = amount - principalPortion;
+      // 最後一期會把尾差一次結清，本金可能大於月付金，這時利息不該顯示成負數
+      interestPortion = Math.max(0, amount - principalPortion);
       nextValue = balanceAfter;
     } else {
       // 沒填起算日：維持舊行為，利率選填時用「目前餘額 × 月利率」拆出這期利息，本金 = 扣款金額 - 利息；

@@ -2,68 +2,15 @@
 export const dynamic = "force-dynamic";
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import YahooFinance from "yahoo-finance2";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
-import { calcPaidInstallments, calcLoanBalance } from "@/lib/loan";
+import { calcPaidInstallments, calcLoanBalance, resolveAccountValue } from "@/lib/loan";
 import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitlements";
 import { logActivity } from "@/lib/activity";
+import { fetchMarketPrice, categoriesRequiringSymbol, fixedValueCategories } from "@/lib/market-price";
 
 
 import { prisma } from "@/lib/prisma";
-
-const categoriesRequiringSymbol = ["TAIWAN_STOCK", "US_STOCK", "JAPAN_STOCK", "KOREA_STOCK", "CRYPTO"];
-const fixedValueCategories = ["CASH", "BANK_ACCOUNT", "FIXED_ASSET", "RECEIVABLE", "PAYABLE", "MORTGAGE", "CAR_LOAN", "CREDIT_LOAN"];
-
-// Yahoo Finance 的市場代碼後綴：台股 .TW、日股 .T、韓股 .KS（KOSDAQ 上市的少數代號可能查不到，屬已知限制）
-const yahooSuffixByCategory: Record<string, string> = { TAIWAN_STOCK: ".TW", JAPAN_STOCK: ".T", KOREA_STOCK: ".KS" };
-// 換算成 TWD 用的匯率代碼（Yahoo「該幣別TWD=X」格式），美股沿用既有的 TWD=X（= USDTWD）
-const fxSymbolByCategory: Record<string, string> = { US_STOCK: "TWD=X", JAPAN_STOCK: "JPYTWD=X", KOREA_STOCK: "KRWTWD=X" };
-
-// 回傳的 price 一律是「該標的原始幣別」的單價（跟帳戶 currency 一致，前端「即時股價」就是顯示這個），
-// value 才是換算成 TWD 後、乘以持有數量前的單價換算基準；currentValue 由呼叫端用 quantity * value 算。
-async function fetchMarketPrice(category: string, rawSymbol: string): Promise<{ price: number; value: number }> {
-  const suffix = yahooSuffixByCategory[category];
-  const symbol = suffix && !rawSymbol.toUpperCase().endsWith(suffix)
-    ? rawSymbol.toUpperCase() + suffix
-    : rawSymbol;
-  const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
-
-  if (category === "CRYPTO") {
-    const normalizedSymbol = symbol.toUpperCase();
-    const cryptoResponse = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
-    );
-
-    if (!cryptoResponse.ok) throw new Error(`CoinGecko API returned ${cryptoResponse.status}`);
-
-    const cryptoData = await cryptoResponse.json();
-    const usdPrice =
-      normalizedSymbol === "BTC" || normalizedSymbol === "BITCOIN"
-        ? Number(cryptoData.bitcoin?.usd || 0)
-        : normalizedSymbol === "ETH" || normalizedSymbol === "ETHEREUM"
-          ? Number(cryptoData.ethereum?.usd || 0)
-          : 0;
-
-    if (!usdPrice) throw new Error(`Unsupported or missing crypto price for ${symbol}`);
-
-    const usdToTwdResult = await yahoo.quote("TWD=X");
-    const usdToTwdRate = Number(usdToTwdResult.regularMarketPrice || 1);
-    return { price: usdPrice, value: usdPrice * usdToTwdRate };
-  }
-
-  const quoteResult = await yahoo.quote(symbol);
-  const marketPrice = Number(quoteResult.regularMarketPrice || 0);
-
-  const fxSymbol = fxSymbolByCategory[category];
-  if (fxSymbol) {
-    const fxResult = await yahoo.quote(fxSymbol);
-    const fxRate = Number(fxResult.regularMarketPrice || 1);
-    return { price: marketPrice, value: marketPrice * fxRate };
-  }
-
-  return { price: marketPrice, value: marketPrice };
-}
 
 export async function GET(request: NextRequest) {
   const userId = getUserIdFromRequest(request);
@@ -107,12 +54,7 @@ export async function GET(request: NextRequest) {
 
     // 「貸款總金額」欄位存的是本金（quantity），餘額（currentValue，卡片上顯示的數字）改由本金＋期數即時算出，
     // 不用等下一次自動扣款才更新，隨時打開 App 看到的都是當下應有的餘額。
-    let currentValue = rest.currentValue;
-    if (hasFullLoanInfo) {
-      const n = calcPaidInstallments(new Date(rest.loanStartDate!), rest.deductionDate!);
-      const cappedN = rest.loanTermMonths != null ? Math.min(n, rest.loanTermMonths) : n;
-      currentValue = calcLoanBalance(rest.quantity ?? 0, rest.monthlyDeductionAmount!, rest.interestRate, cappedN);
-    }
+    const currentValue = resolveAccountValue(rest);
 
     return {
       ...rest,
@@ -241,16 +183,22 @@ export async function POST(request: NextRequest) {
 
   let currentPriceValue = 1;
   let currentValueValue = isApiMode ? 0 : quantityValue;
+  let dayChangePctValue: number | null = null;
+  let priceWarning: string | null = null;
 
   if (categoriesRequiringSymbol.includes(category) && !isApiMode) {
     try {
-      const { price, value } = await fetchMarketPrice(category, trimmedSymbol);
+      const { price, value, dayChangePct } = await fetchMarketPrice(category, trimmedSymbol);
       currentPriceValue = Number(price || 0);
       currentValueValue = quantityValue * Number(value || 0);
+      dayChangePctValue = dayChangePct;
     } catch (error) {
+      // 抓不到報價時仍然建立帳戶（不要丟掉使用者剛輸入的資料），但要讓前端有機會提示，
+      // 否則使用者只會看到一筆金額 0 的資產，完全不知道發生了什麼事。
       console.error("Failed to fetch current market price for new account:", error);
       currentPriceValue = 0;
       currentValueValue = 0;
+      priceWarning = `目前抓不到「${trimmedSymbol}」的報價，已先以 0 建立，下次同步會自動補上`;
     }
   } else if (fixedValueCategories.includes(category)) {
     currentPriceValue = 1;
@@ -262,7 +210,11 @@ export async function POST(request: NextRequest) {
   if (type === "LIABILITY" && loanStartDateValue && deductionDateValue != null && deductionAmountValue != null) {
     const n = calcPaidInstallments(loanStartDateValue, deductionDateValue);
     const cappedN = loanTermMonthsValue != null ? Math.min(n, loanTermMonthsValue) : n;
-    currentValueValue = calcLoanBalance(quantityValue, deductionAmountValue, interestRateValue, cappedN);
+    currentValueValue = calcLoanBalance(quantityValue, deductionAmountValue, interestRateValue, cappedN, {
+      loanStartDate: loanStartDateValue,
+      deductionDate: deductionDateValue,
+      termMonths: loanTermMonthsValue,
+    });
   }
 
   const account = await prisma.account.create({
@@ -276,6 +228,7 @@ export async function POST(request: NextRequest) {
       quantity: quantityValue,
       currency: currency as any,
       currentPrice: currentPriceValue,
+      dayChangePct: dayChangePctValue,
       currentValue: currentValueValue,
       isApiConnected: isApiMode,
       apiSource: isApiMode ? (apiSource?.trim() || "BITFINEX") : null,
@@ -294,5 +247,12 @@ export async function POST(request: NextRequest) {
   void logActivity(userId, "ACCOUNT_CREATED", `新增${type === "LIABILITY" ? "負債" : "資產"}「${account.name}」`, currentValueValue);
 
   const { apiKey: _apiKey, apiSecret: _apiSecret, apiPassphrase: _apiPassphrase, ...sanitizedAccount } = account;
-  return NextResponse.json({ ...sanitizedAccount, hasApiCredentials: Boolean(account.apiKey && account.apiSecret) }, { status: 201 });
+  return NextResponse.json(
+    {
+      ...sanitizedAccount,
+      hasApiCredentials: Boolean(account.apiKey && account.apiSecret),
+      ...(priceWarning ? { warning: priceWarning } : {}),
+    },
+    { status: 201 }
+  );
 }

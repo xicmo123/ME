@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
-import { getEntitlementsForUser, computeLockedAccountIds } from "@/lib/entitlements";
+import { getEntitlementsForUser } from "@/lib/entitlements";
+import { resolveAccountValue } from "@/lib/loan";
 
 import { prisma } from "@/lib/prisma";
 
@@ -20,13 +21,12 @@ export async function GET(request: NextRequest) {
     where: { userId, isActive: true },
   });
 
-  // 降級後被鎖定的帳戶不計入淨值，跟 /api/accounts、前端 summary 用同一套判斷
-  const entitlements = await getEntitlementsForUser(userId);
-  const lockedAccountIds = computeLockedAccountIds(accounts, entitlements.limits.maxAccounts);
-  const unlockedAccounts = accounts.filter((a) => !lockedAccountIds.has(a.id));
-
-  const totalAssets = unlockedAccounts.filter(a => a.type === "ASSET").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
-  const totalLiabilities = unlockedAccounts.filter(a => a.type === "LIABILITY").reduce((sum, a) => sum + Number(a.currentValue ?? 0), 0);
+  // 目標進度一律以「所有啟用中的帳戶」計算，跟訂閱方案無關——降級不該讓已達標的目標
+  // 突然退回未達標。鎖定只影響明細檢視／編輯／同步，見 lib/entitlements.ts 的說明。
+  // 貸款餘額用 resolveAccountValue 即時算（currentValue 欄位每月只更新一次），
+  // 否則「清償負債」目標的進度會比卡片上顯示的餘額慢一個月。
+  const totalAssets = accounts.filter(a => a.type === "ASSET").reduce((sum, a) => sum + resolveAccountValue(a), 0);
+  const totalLiabilities = accounts.filter(a => a.type === "LIABILITY").reduce((sum, a) => sum + resolveAccountValue(a), 0);
   const netWorth = totalAssets - totalLiabilities;
 
   const goalsWithProgress = goals.map(goal => {
@@ -39,11 +39,11 @@ export async function GET(request: NextRequest) {
     if (goal.type === "NET_WORTH") {
       currentAmount = netWorth;
     } else if (goal.type === "ACCOUNT" && goal.accountId) {
-      const account = unlockedAccounts.find(a => a.id === goal.accountId);
-      currentAmount = Number(account?.currentValue ?? 0);
+      const account = accounts.find(a => a.id === goal.accountId);
+      currentAmount = account ? resolveAccountValue(account) : 0;
     } else if (goal.type === "DEBT_PAYOFF" && goal.accountId) {
-      const account = unlockedAccounts.find(a => a.id === goal.accountId);
-      remainingBalance = Number(account?.currentValue ?? 0);
+      const account = accounts.find(a => a.id === goal.accountId);
+      remainingBalance = account ? resolveAccountValue(account) : 0;
       currentAmount = Math.max(0, goal.targetAmount - remainingBalance);
     }
 
