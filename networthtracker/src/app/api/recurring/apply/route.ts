@@ -179,8 +179,16 @@ async function applyForUser(userId: string) {
 
       // 若指定了扣款來源帳戶，同步減少該帳戶餘額並留下紀錄
       if (acc.deductFromAccountId) {
+        // 只從「還在使用中」的現金／銀行帳戶扣。封存後就不該再被扣款，
+        // 而且設定當下的限制（isActive + CASH/BANK_ACCOUNT）也得在這裡重新確認一次，
+        // 因為帳戶可能在設定完之後才被封存或改分類。
         const source = await tx.account.findFirst({
-          where: { id: acc.deductFromAccountId, userId },
+          where: {
+            id: acc.deductFromAccountId,
+            userId,
+            isActive: true,
+            category: { in: ["CASH", "BANK_ACCOUNT"] },
+          },
         });
         if (source) {
           const sourceNext = Number(source.currentValue ?? 0) - amount;
