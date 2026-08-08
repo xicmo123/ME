@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 8000",
+    "dev": "next dev -H 0.0.0.0 -p 8080",
     "build": "next build",
-    "start": "next start -p 8080",
-    "lint": "eslint"
+    "start": "next start -H 0.0.0.0 -p 8080",
+    "lint": "eslint",
+    "postbuild:standalone": "rm -rf .next/standalone/.next/static .next/standalone/public && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public",
+    "deploy": "npm run build && npm run postbuild:standalone && systemctl --user restart zeno-networth && sleep 6 && curl -fsS http://127.0.0.1:8080/api/health && echo"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
