@@ -48,3 +48,8 @@ prisma/dev.db-journal
 
 # claude code local tooling
 /.claude/
+out/
+.next.failed-build-*/
+.next.stale-*/
+.next.turbo-stale-*/
+me-repo.log

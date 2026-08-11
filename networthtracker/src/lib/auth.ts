@@ -1,8 +1,11 @@
 // src/lib/auth.ts
 // 所有 API 都用这个函数来验证登入状态，拿到 userId
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+
+export const AUTH_COOKIE_NAME = "auth-token";
+const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 function requireJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -14,13 +17,30 @@ function requireJwtSecret(): string {
 
 const JWT_SECRET = requireJwtSecret();
 
-export function getUserIdFromRequest(request: NextRequest): string | null {
-  try {
-    // 从 cookie 里拿 token
-    const token = request.cookies.get("auth-token")?.value;
-    if (!token) return null;
+// 兩種憑證來源：
+// - 網頁版：httpOnly cookie。瀏覽器自動帶上，前端 JS 讀不到，最安全。
+// - App 版：Authorization: Bearer。App 的 UI 是從 binary 載入的（origin 為 capacitor://localhost），
+//   打 API 時屬於跨站請求，WKWebView 的 ITP 會擋掉第三方 cookie，所以 cookie 這條路在 App 裡走不通。
+//   token 改由 App 存在原生 Keychain（見 src/lib/authToken.ts），每次請求自己帶上。
+//
+// 兩者簽的是同一種 JWT，驗證邏輯共用；cookie 優先，讓網頁版行為完全不變。
+function readBearerToken(request: NextRequest): string | null {
+  const header = request.headers.get("authorization");
+  if (!header) return null;
+  const [scheme, value] = header.split(" ");
+  if (scheme?.toLowerCase() !== "bearer" || !value) return null;
+  return value;
+}
 
-    const payload = jwt.verify(token, JWT_SECRET) as { userId: string };
+export function getUserIdFromRequest(request: NextRequest): string | null {
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value ?? readBearerToken(request);
+  if (!token) return null;
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as { userId: string; purpose?: string };
+    // 短效的 native-exchange / native-link 交換碼用的是同一個密鑰，
+    // 不擋掉的話它們會被當成正式的登入憑證使用。
+    if (payload.purpose) return null;
     return payload.userId || null;
   } catch {
     return null;
@@ -29,6 +49,41 @@ export function getUserIdFromRequest(request: NextRequest): string | null {
 
 export function createToken(userId: string): string {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "7d" });
+}
+
+// 登入 cookie 的設定先前在 auth route、Google callback、Apple callback、native-exchange
+// 四個地方各寫一份，改一個屬性（例如 sameSite）很容易漏掉其中一處。集中在這裡。
+export function setAuthCookie(response: NextResponse, token: string): NextResponse {
+  response.cookies.set(AUTH_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
+    path: "/",
+  });
+  return response;
+}
+
+// 登入成功的統一出口：網頁版靠 Set-Cookie，App 版從 body 的 token 欄位拿。
+// 兩者是同一個 JWT，只是送達方式不同。
+export function authenticatedJson(
+  body: Record<string, unknown>,
+  userId: string,
+  init?: ResponseInit
+): NextResponse {
+  const token = createToken(userId);
+  return setAuthCookie(NextResponse.json({ ...body, token }, init), token);
+}
+
+export function clearAuthCookie(response: NextResponse): NextResponse {
+  response.cookies.set(AUTH_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 0,
+    path: "/",
+  });
+  return response;
 }
 
 // iOS App 版登入：OAuth callback 是在 ASWebAuthenticationSession 的獨立瀏覽情境裡發生的，

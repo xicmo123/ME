@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+
 const cron = require('node-cron');
 const { execSync } = require('child_process');
 
@@ -7,7 +9,7 @@ console.log("⏰ 即時同步任務：每小時整點 (0分0秒) 自動觸發最
 
 // 自動偵測目前 Next.js 跑在線上的 Port
 function getRunningPort() {
-  let port = 3000;
+  let port = 8080;
   try {
     const pm2Info = execSync('pm2 jlist').toString();
     const apps = JSON.parse(pm2Info);
@@ -15,8 +17,8 @@ function getRunningPort() {
     if (tracker && tracker.pm2_env && tracker.pm2_env.PORT) {
       port = tracker.pm2_env.PORT;
     }
-  } catch (e) {
-    // 偵測失敗則沿用預設 3000
+  } catch {
+    // 偵測失敗則沿用正式環境預設 8080
   }
   return port;
 }

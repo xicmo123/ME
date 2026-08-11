@@ -3,9 +3,14 @@
 // 所有函式都會直接安全地跳過，不影響一般 Web 使用。
 
 import { Capacitor } from "@capacitor/core";
+import { loadAuthToken, saveAuthToken } from "./authToken";
 
-// 跟 capacitor.config.ts 的 server.url 一致——App 的 WKWebView 就是指到這個網域。
-const APP_ORIGIN = "https://zeno.zequo.net";
+// 後端 API 的位置。App 的前端本身是從 binary 載入的（origin 為 capacitor://localhost），
+// 這裡只用來組出打 API 與啟動 OAuth 的絕對網址。
+//
+// 先前這個常數是 capacitor.config.ts 的 server.url，也就是「整個 App 從哪裡載入」；
+// 那個架構被 App Store 以 Guideline 5.6 退件，現在只剩資料走遠端。
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
 
 export function isNative(): boolean {
   return Capacitor.isNativePlatform();
@@ -30,9 +35,15 @@ export async function startOAuth(provider: "google" | "apple", options: { link?:
     return;
   }
 
-  let startUrl = `${APP_ORIGIN}/api/auth/${provider}?platform=native`;
+  let startUrl = `${API_ORIGIN}/api/auth/${provider}?platform=native`;
   if (options.link) {
-    const res = await fetch(`${APP_ORIGIN}/api/auth/native-link-token`, { credentials: "include" });
+    // 綁定既有帳號要證明「現在是誰登入」。cookie 在這裡靠不住（跨站會被 ITP 擋掉），
+    // 改用已存下的 bearer token。
+    const authToken = await loadAuthToken();
+    const res = await fetch(`${API_ORIGIN}/api/auth/native-link-token`, {
+      credentials: "include",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+    });
     if (!res.ok) return; // 沒登入就沒什麼好綁定的
     const { token } = await res.json();
     startUrl += `&linkToken=${encodeURIComponent(token)}`;
@@ -51,20 +62,33 @@ export async function startOAuth(provider: "google" | "apple", options: { link?:
   const opened = new URL(result.url);
   const exchangeCode = opened.searchParams.get("exchange");
   if (exchangeCode) {
-    await fetch(`${APP_ORIGIN}/api/auth/native-exchange`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: exchangeCode }),
-    }).catch(() => {});
+    // 換發正式憑證。回應同時帶 Set-Cookie（給網頁版）與 body.token（給 App）——
+    // App 這邊只有 token 有用，cookie 在 capacitor://localhost 這個 origin 下收不到。
+    try {
+      const res = await fetch(`${API_ORIGIN}/api/auth/native-exchange`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: exchangeCode }),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && typeof body?.token === "string") {
+        await saveAuthToken(body.token);
+      }
+    } catch {
+      // 換發失敗就維持未登入狀態，使用者會停在登入畫面可以再試一次
+    }
   }
 
-  const target = new URL("/", APP_ORIGIN);
+  // 導回 App 內部的首頁。這裡必須是相對路徑——用絕對網址會把 WKWebView 整個導去遠端站台，
+  // 那正是先前被退件的架構。
+  const params = new URLSearchParams();
   opened.searchParams.forEach((value, key) => {
     if (key === "exchange") return;
-    target.searchParams.set(key, value);
+    params.set(key, value);
   });
-  window.location.href = target.toString();
+  const query = params.toString();
+  window.location.href = query ? `/?${query}` : "/";
 }
 
 export async function initNativeShell(isDarkMode: boolean) {
@@ -184,6 +208,89 @@ export async function restorePurchases(): Promise<boolean> {
   } catch (err) {
     console.error("restorePurchases failed", err);
     return false;
+  }
+}
+
+// ─── App Store 評分引導 ───────────────────────────────────────────────────
+//
+// 在使用者剛完成一件有成就感的事情之後，才詢問要不要給評分——這是最便宜也最有效的 ASO 手段。
+// iOS 本身一年最多只會真的顯示三次，所以這裡的節流只是「不要在剛安裝就問」與
+// 「不要每次都問」；真正的顯示與否由系統決定。
+const REVIEW_PROMPT_KEY = "zeno-review-prompt";
+const REVIEW_MIN_MEANINGFUL_ACTIONS = 5; // 至少完成 5 次有意義的操作才問
+const REVIEW_MIN_DAYS_BETWEEN_PROMPTS = 90;
+
+type ReviewState = { actions: number; lastPromptedAt: number | null };
+
+function readReviewState(): ReviewState {
+  try {
+    const raw = localStorage.getItem(REVIEW_PROMPT_KEY);
+    if (raw) return { actions: 0, lastPromptedAt: null, ...(JSON.parse(raw) as Partial<ReviewState>) };
+  } catch {
+    // 讀不到就當作全新狀態
+  }
+  return { actions: 0, lastPromptedAt: null };
+}
+
+function writeReviewState(state: ReviewState) {
+  try {
+    localStorage.setItem(REVIEW_PROMPT_KEY, JSON.stringify(state));
+  } catch {
+    // 存不下來就跳過，評分引導不是關鍵路徑
+  }
+}
+
+/**
+ * 記錄一次「有意義的操作」，累積到門檻且距離上次詢問夠久時，請系統跳出評分卡片。
+ * @param reason 只用於除錯，方便看出是哪個動作觸發的
+ */
+export async function maybeRequestReview(reason: string): Promise<void> {
+  if (!isNative()) return;
+
+  const state = readReviewState();
+  const nextActions = state.actions + 1;
+  const daysSincePrompt = state.lastPromptedAt
+    ? (Date.now() - state.lastPromptedAt) / 86_400_000
+    : Number.POSITIVE_INFINITY;
+
+  if (nextActions < REVIEW_MIN_MEANINGFUL_ACTIONS || daysSincePrompt < REVIEW_MIN_DAYS_BETWEEN_PROMPTS) {
+    writeReviewState({ ...state, actions: nextActions });
+    return;
+  }
+
+  // 用 registerPlugin 而不是 import 套件：這樣不需要新增 npm 依賴，
+  // 原生端沒有註冊這個外掛時 isPluginAvailable 會是 false，直接略過。
+  if (!Capacitor.isPluginAvailable("AppReview")) {
+    writeReviewState({ ...state, actions: nextActions });
+    return;
+  }
+
+  try {
+    const { registerPlugin } = await import("@capacitor/core");
+    const AppReview = registerPlugin<{ requestReview: () => Promise<void> }>("AppReview");
+    await AppReview.requestReview();
+    writeReviewState({ actions: 0, lastPromptedAt: Date.now() });
+    console.log(`[review] 已請求評分（觸發來源：${reason}）`);
+  } catch {
+    writeReviewState({ ...state, actions: nextActions });
+  }
+}
+
+/**
+ * App 版本號，顯示在設定頁。
+ * 先前設定頁是寫死的「版本 1.0」，送出新版之後畫面上還是 1.0。
+ * 優先讀原生的 App 外掛（有裝才有），否則退回建置時注入的 NEXT_PUBLIC_APP_VERSION。
+ */
+export async function getAppVersion(): Promise<string> {
+  const fallback = process.env.NEXT_PUBLIC_APP_VERSION || "—";
+  if (!isNative() || !Capacitor.isPluginAvailable("App")) return fallback;
+  try {
+    const { registerPlugin } = await import("@capacitor/core");
+    const App = registerPlugin<{ getInfo: () => Promise<{ version: string; build: string }> }>("App");
+    const info = await App.getInfo();
+    return `${info.version} (${info.build})`;
+  } catch {
+    return fallback;
   }
 }
 

@@ -17,24 +17,39 @@ export type Entitlements = {
     csvExport: boolean; // CSV 報表匯出
     recurringTransactions: boolean; // 定期扣款自動記帳
     autoSync: boolean; // 股價/幣價每 10 分鐘自動更新；Free 只能手動同步
+    extendedTrendRange: boolean; // 走勢圖的「一年／自訂區間／大盤比較」
+    scenarioSimulator: boolean; // 情境模擬
+    annualReport: boolean; // 年度報告
   };
   manualSyncLimitPerDay: number | null; // null = 無上限（Pro）；Free 一天最多手動同步幾次
 };
 
-const FREE_LIMITS: Entitlements["limits"] = { maxAccounts: 10, maxGoals: 3 };
+// 免費帳戶數從 10 收到 6：一般使用者的資產帳戶數中位數大約落在 5～8 個，給 10 個等於
+// 絕大多數人永遠不會撞到牆，也就永遠沒有升級的理由。6 個讓「有在認真理財的人」會碰到上限，
+// 隨手記個幾筆的輕度使用者則完全不受影響。
+const FREE_LIMITS: Entitlements["limits"] = { maxAccounts: 6, maxGoals: 3 };
 const PRO_LIMITS: Entitlements["limits"] = { maxAccounts: null, maxGoals: null };
 
+// 相對地，走勢區間從「只有兩週」放寬到六個月——先前免費版的走勢頁幾乎是空的，
+// 那不是誘餌而是把功能拿走，容易直接造成解安裝。先讓人嘗到甜頭，再用一年／自訂／
+// 大盤比較／年度報告／情境模擬這些「進階分析」收費。
 const FREE_FEATURES: Entitlements["features"] = {
   apiSync: false,
   csvExport: false,
   recurringTransactions: false,
   autoSync: false,
+  extendedTrendRange: false,
+  scenarioSimulator: false,
+  annualReport: false,
 };
 const PRO_FEATURES: Entitlements["features"] = {
   apiSync: true,
   csvExport: true,
   recurringTransactions: true,
   autoSync: true,
+  extendedTrendRange: true,
+  scenarioSimulator: true,
+  annualReport: true,
 };
 
 const FREE_MANUAL_SYNC_LIMIT_PER_DAY = 3;
@@ -104,9 +119,12 @@ export async function getManualSyncStatusForUser(userId: string): Promise<{
   return { limit, used, remaining, resetAt };
 }
 
-// 降級後保留最早建立的 N 筆帳戶維持可用，其餘視為「鎖定」——鎖定帳戶的金額不計入
-// 總資產/負債/淨資產與資產配置，等重新升級成 Pro 才自動解鎖、資料回歸計算。
-// 前端（鎖頭遮罩）跟後端（淨值計算、目標進度）都呼叫這支，確保兩邊判斷一致。
+// 降級後保留最早建立的 N 筆帳戶維持完整可用，其餘標記為「鎖定」。
+//
+// 鎖定 **不影響任何金額計算**：總資產／負債／淨資產／資產配置／目標進度一律計入所有
+// 啟用中的帳戶。先前的作法是把鎖定帳戶排除在淨值之外，結果訂閱一過期，使用者打開 App
+// 看到的就是一個偏低的錯誤數字，走勢圖上還會留下一道假的斷崖——一個財務工具給錯數字，
+// 對信任的傷害遠大於擋住功能。鎖定現在只影響「明細檢視／編輯／自動同步」這些互動。
 export function computeLockedAccountIds<T extends { id: string; createdAt: Date }>(
   accounts: T[],
   maxAccounts: number | null

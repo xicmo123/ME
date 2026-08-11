@@ -27,7 +27,7 @@ const faqs = [
 
 export default function SupportPage() {
   return (
-    <main className="min-h-screen bg-[#EEF0EC] dark:bg-[#0B0D12] text-[#1C1F1A] dark:text-[#E7E5DE] px-6 py-12">
+    <main className="min-h-screen bg-[#EEF0EC] dark:bg-[#0B0D12] text-brand-ink dark:text-brand-paper px-6 py-12">
       <div className="max-w-2xl mx-auto space-y-8 text-sm leading-relaxed">
         <div>
           <h1 className="text-2xl font-bold mb-2">支援</h1>

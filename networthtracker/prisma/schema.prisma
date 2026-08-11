@@ -101,6 +101,7 @@ model User {
   goals         Goal[]
   syncLogs      SyncLog[]
   activityLogs  ActivityLog[]
+  calendarEvents CalendarEvent[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -119,6 +120,7 @@ model Account {
   symbol        String?
   quantity      Float?          @default(0)
   currentPrice  Float?          @default(0)
+  dayChangePct  Float?
   currentValue  Float           @default(0)
   currency      Currency        @default(TWD)
   isApiConnected Boolean        @default(false)
@@ -223,6 +225,20 @@ model SyncLog {
   @@index([userId, syncedAt])
 }
 
+// 使用者自建行事曆事件（跟財報/除息/配息那種自動帶入的股票事件分開），用來排本地通知提醒
+model CalendarEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title     String
+  eventAt   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([eventAt])
+}
+
 model Goal {
   id          String   @id @default(cuid())
   userId      String
@@ -240,4 +256,3 @@ model Goal {
 
   @@index([userId])
 }
-

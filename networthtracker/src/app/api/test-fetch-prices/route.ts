@@ -66,12 +66,29 @@ function getYahooQuoteSymbol(category: string, symbol: string) {
   return normalizedSymbol;
 }
 
-// ─── 節流：使用者手動按「更新」時，如果距離上一次成功同步不到 THROTTLE_MS，
+// ─── 節流：使用者手動按「更新」時，如果距離「他自己」上一次同步不到 THROTTLE_MS，
 // 直接跳過外部 API 呼叫，避免有人連續猛戳更新鍵而放大請求量。
 // 內部 cron 排程（每 10 分鐘一次）不受此限制，一律照排程執行。
-// 這是單一長駐 Node process（非 serverless），模組層級變數在整個 process 生命週期內有效。
+//
+// 先前這裡是單一的全域 `lastSyncCompletedAt`，等於「任何一個人按了更新，全站在 15 秒內
+// 都會被回『更新太頻繁』」——使用者一多就會變成大量「按了沒反應」的客訴。改成 per-user。
+// 這是單一長駐 Node process（非 serverless），模組層級 Map 在整個 process 生命週期內有效。
 const THROTTLE_MS = 15_000;
-let lastSyncCompletedAt = 0;
+const lastSyncByUser = new Map<string, number>();
+
+function isThrottled(userId: string): boolean {
+  const last = lastSyncByUser.get(userId);
+  return last != null && Date.now() - last < THROTTLE_MS;
+}
+
+function markSynced(userId: string) {
+  lastSyncByUser.set(userId, Date.now());
+  // 這張表只用來擋連點，超過節流窗很久的紀錄留著沒有意義，順手清掉避免無限成長
+  if (lastSyncByUser.size > 500) {
+    const cutoff = Date.now() - THROTTLE_MS;
+    for (const [key, at] of lastSyncByUser) if (at < cutoff) lastSyncByUser.delete(key);
+  }
+}
 
 // ─── 開盤時間判斷：背景 cron 用這個跳過收盤時段、節省請求額度。
 // 使用者手動按「更新」則不受開盤時間限制（見下方 isMarketOpenForCategory 呼叫處），
@@ -130,7 +147,7 @@ function isMarketOpenForCategory(category: string, now: Date): boolean {
 
 // ─── 台股報價改用證交所自己的公開行情端點，不用 Yahoo 這種非官方爬蟲式套件，
 // 降低被限流/封鎖的風險。上市（tse）查不到就試上櫃（otc）。查不到就回傳 null，讓呼叫端 fallback 回 Yahoo。
-async function getTwseQuote(rawSymbol: string): Promise<number | null> {
+async function getTwseQuote(rawSymbol: string): Promise<{ price: number; dayChangePct: number | null } | null> {
   const code = rawSymbol.replace(/\.TW$/i, "").trim();
   if (!code) return null;
   for (const prefix of ["tse", "otc"]) {
@@ -140,8 +157,13 @@ async function getTwseQuote(rawSymbol: string): Promise<number | null> {
       const data = await res.json();
       const item = data?.msgArray?.[0];
       if (!item) continue;
+      const prevClose = parseFloat(item.y);
+      const withChange = (price: number) => ({
+        price,
+        dayChangePct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : null,
+      });
       const lastTradedPrice = parseFloat(item.z);
-      if (lastTradedPrice > 0) return lastTradedPrice;
+      if (lastTradedPrice > 0) return withChange(lastTradedPrice);
 
       // z 有時會在兩次撮合之間短暫回傳 "-"（不是沒開盤，只是這個 snapshot 剛好卡在成交瞬間之間），
       // 這種情況下用「昨收」當備援誤差可能很大（一天內可能已經漲跌好幾%），
@@ -149,13 +171,12 @@ async function getTwseQuote(rawSymbol: string): Promise<number | null> {
       const bestAsk = parseFloat((item.a || "").split("_")[0]);
       const bestBid = parseFloat((item.b || "").split("_")[0]);
       const hasTraded = Number(item.v) > 0 || Number(item.tv) > 0; // 今天已經有成交量，代表盤中只是暫時抓不到 z
-      if (hasTraded && bestAsk > 0 && bestBid > 0) return (bestAsk + bestBid) / 2;
-      if (hasTraded && bestAsk > 0) return bestAsk;
-      if (hasTraded && bestBid > 0) return bestBid;
+      if (hasTraded && bestAsk > 0 && bestBid > 0) return withChange((bestAsk + bestBid) / 2);
+      if (hasTraded && bestAsk > 0) return withChange(bestAsk);
+      if (hasTraded && bestBid > 0) return withChange(bestBid);
 
-      // 真的還沒開盤成交（沒有任何成交量）才退回昨收價當備援
-      const prevClose = parseFloat(item.y);
-      if (!hasTraded && prevClose > 0) return prevClose;
+      // 真的還沒開盤成交（沒有任何成交量）才退回昨收價當價格備援；漲跌幅留空，避免誤顯示成 0%。
+      if (!hasTraded && prevClose > 0) return { price: prevClose, dayChangePct: null };
     } catch {
       // 忽略，換下一個 prefix 或最終回傳 null 讓呼叫端 fallback
     }
@@ -323,7 +344,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 使用者手動按「更新」按太快，直接跳過這次外部 API 呼叫（cron 排程本身間隔已經夠長，不受此限制）
-  if (!isCron && Date.now() - lastSyncCompletedAt < THROTTLE_MS) {
+  if (!isCron && requestUserId && isThrottled(requestUserId)) {
     return NextResponse.json({ message: "更新太頻繁，請稍後再試", throttled: true });
   }
 
@@ -353,7 +374,7 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const results = {
     timestamp: new Date().toISOString(),
-    manualUpdates: [] as Array<{ symbol: string; category: string; price: number; currentValue: number }>,
+    manualUpdates: [] as Array<{ symbol: string; category: string; price: number; dayChangePct: number | null; currentValue: number }>,
     bitfinexUpdates: [] as Array<{ accountName: string; symbol: string; quantity: number; usdPrice: number; twdValue: number }>,
     binanceUpdates: [] as Array<{ accountName: string; quantity: number; twdValue: number }>,
     okxUpdates: [] as Array<{ accountName: string; quantity: number; twdValue: number }>,
@@ -409,7 +430,7 @@ export async function GET(request: NextRequest) {
       if (!quoteSymbolMap.has(quoteSymbol)) quoteSymbolMap.set(quoteSymbol, { category: account.category, quoteSymbol, rawSymbol: symbol });
     }
 
-    const priceBySymbol = new Map<string, number>();
+    const quoteBySymbol = new Map<string, { price: number; dayChangePct: number | null }>();
     // symbol 數量會隨帳戶／使用者數增加，序列 await 會讓一輪同步的時間線性拉長，
     // 改成有限併發（同時最多 8 檔）平行查詢，同時避免無限併發把外部 API 瞬間打爆。
     await runWithConcurrency(Array.from(quoteSymbolMap.values()), 8, async ({ category, quoteSymbol, rawSymbol }) => {
@@ -418,13 +439,14 @@ export async function GET(request: NextRequest) {
         if (category === 'TAIWAN_STOCK') {
           const twsePrice = await getTwseQuote(rawSymbol);
           if (twsePrice) {
-            priceBySymbol.set(quoteSymbol, twsePrice);
+            quoteBySymbol.set(quoteSymbol, twsePrice);
             return;
           }
         }
         const quoteResult = await yahoo.quote(quoteSymbol);
         const marketPrice = Number(quoteResult.regularMarketPrice || 0);
-        if (marketPrice) priceBySymbol.set(quoteSymbol, marketPrice);
+        const dayChangePct = Number(quoteResult.regularMarketChangePercent);
+        if (marketPrice) quoteBySymbol.set(quoteSymbol, { price: marketPrice, dayChangePct: Number.isFinite(dayChangePct) ? dayChangePct : null });
       } catch (error) {
         const errorMsg = `Quote error for ${quoteSymbol}: ${error instanceof Error ? error.message : String(error)}`;
         results.errors.push(errorMsg);
@@ -438,8 +460,10 @@ export async function GET(request: NextRequest) {
 
       try {
         const quoteSymbol = getYahooQuoteSymbol(account.category, symbol);
-        const marketPrice = priceBySymbol.get(quoteSymbol);
-        if (!marketPrice) continue;
+        const quote = quoteBySymbol.get(quoteSymbol);
+        if (!quote?.price) continue;
+        const marketPrice = quote.price;
+        const dayChangePct = quote.dayChangePct;
 
         let currentPrice: number;
         let currentValue: number;
@@ -459,10 +483,10 @@ export async function GET(request: NextRequest) {
 
         await prisma.account.update({
           where: { id: account.id },
-          data: { currentPrice, currentValue },
+          data: { currentPrice, dayChangePct, currentValue },
         });
 
-        results.manualUpdates.push({ symbol: quoteSymbol, category: account.category, price: currentPrice, currentValue });
+        results.manualUpdates.push({ symbol: quoteSymbol, category: account.category, price: currentPrice, dayChangePct, currentValue });
       } catch (error) {
         const errorMsg = `Update error for ${account.symbol}: ${error instanceof Error ? error.message : String(error)}`;
         results.errors.push(errorMsg);
@@ -695,9 +719,7 @@ export async function GET(request: NextRequest) {
     coinbaseUpdates: results.coinbaseUpdates.length,
   };
 
-  lastSyncCompletedAt = Date.now();
+  if (requestUserId) markSynced(requestUserId);
   return NextResponse.json(results);
 }
-
-
 

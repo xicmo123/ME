@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeGoogleCode, fetchGoogleUserInfo } from "@/lib/googleAuth";
-import { createNativeExchangeToken, createToken, getUserIdFromRequest } from "@/lib/auth";
+import { createNativeExchangeToken, createToken, getUserIdFromRequest, setAuthCookie } from "@/lib/auth";
+import { resolveOAuthLogin } from "@/lib/oauthAccount";
 import { getAppOrigin } from "@/lib/requestOrigin";
 import { buildNativeCallbackUrl, clearOAuthPlatformCookie, getOAuthLinkUserId, isNativeOAuthCallback } from "@/lib/oauthNative";
 
@@ -59,14 +60,11 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    // 登入／註冊流程：先用 googleId 找，找不到再用 email 找（讓舊帳號自動接上 Google），都找不到才新建
-    let user = await prisma.user.findUnique({ where: { googleId: profile.sub } });
-    if (!user) {
-      const existingByEmail = await prisma.user.findUnique({ where: { email: profile.email } });
-      user = existingByEmail
-        ? await prisma.user.update({ where: { id: existingByEmail.id }, data: { googleId: profile.sub, emailVerified: true } })
-        : await prisma.user.create({ data: { email: profile.email, googleId: profile.sub, emailVerified: true } });
-    }
+    // 登入／註冊流程。合併規則見 lib/oauthAccount.ts——有密碼的同信箱帳號一律不自動合併，
+    // 否則會形成「搶先用別人的信箱註冊 → 對方 Google 登入時被併進攻擊者帳號」的接管路徑。
+    const resolved = await resolveOAuthLogin("google", profile.sub, profile.email);
+    if (!resolved.ok) return redirectWithError(request, resolved.message);
+    const user = { id: resolved.userId };
 
     if (isNative) {
       // App 版：這個回應是在 ASWebAuthenticationSession 的獨立瀏覽情境裡發生的，設 auth-token
@@ -80,10 +78,9 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    const token = createToken(user.id);
     const url = new URL("/", getAppOrigin(request)).toString();
     const response = NextResponse.redirect(url);
-    response.cookies.set("auth-token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 7, path: "/" });
+    setAuthCookie(response, createToken(user.id));
     response.cookies.set("google-oauth-state", "", { maxAge: 0, path: "/" });
     clearOAuthPlatformCookie(response);
     return response;

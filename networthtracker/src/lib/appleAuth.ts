@@ -10,7 +10,7 @@
 
 import { SignJWT, createRemoteJWKSet, jwtVerify } from "jose";
 import { NextRequest } from "next/server";
-import { getRequestOrigin } from "./requestOrigin";
+import { DEFAULT_APP_ORIGIN, getRequestOrigin } from "./requestOrigin";
 
 const APPLE_AUTH_URL = "https://appleid.apple.com/auth/authorize";
 const APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token";
@@ -23,7 +23,7 @@ export function isAppleSignInConfigured(): boolean {
 }
 
 export function getAppleRedirectUri(request?: NextRequest): string {
-  const base = process.env.APP_BASE_URL || (request ? getRequestOrigin(request) : "http://localhost:8000");
+  const base = process.env.APP_BASE_URL || (request ? getRequestOrigin(request) : DEFAULT_APP_ORIGIN);
   return `${base.replace(/\/$/, "")}/api/auth/apple/callback`;
 }
 

@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { getUserIdFromRequest } from "@/lib/auth";
+import { clearAuthCookie, getUserIdFromRequest } from "@/lib/auth";
 
 import { prisma } from "@/lib/prisma";
 
@@ -10,16 +10,11 @@ export async function DELETE(request: NextRequest) {
   if (!userId) return NextResponse.json({ message: "未登入" }, { status: 401 });
 
   try {
-    // 依序刪除所有關聯資料
-    await prisma.assetHistory.deleteMany({ where: { userId } });
-    await prisma.transaction.deleteMany({ where: { userId } });
-    await prisma.account.deleteMany({ where: { userId } });
+    // schema 裡每一張關聯表對 User 都是 onDelete: Cascade，所以刪掉 user 這一列
+    // 資料庫就會把 accounts / history / transactions / goals / syncLogs / activityLogs /
+    // calendarEvents 一併清掉。先前是手動逐張刪前三張，之後新增的資料表很容易漏掉。
     await prisma.user.delete({ where: { id: userId } });
-
-    // 清除 cookie
-    const response = NextResponse.json({ message: "帳號已刪除" });
-    response.cookies.set("auth-token", "", { httpOnly: true, maxAge: 0, path: "/" });
-    return response;
+    return clearAuthCookie(NextResponse.json({ message: "帳號已刪除" }));
   } catch (error) {
     console.error("Delete account failed:", error);
     return NextResponse.json({ message: "刪除失敗", error: String(error) }, { status: 500 });

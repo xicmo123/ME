@@ -1,14 +1,14 @@
 // Google OAuth 2.0 helpers（Authorization Code flow）
 
 import { NextRequest } from "next/server";
-import { getRequestOrigin } from "./requestOrigin";
+import { DEFAULT_APP_ORIGIN, getRequestOrigin } from "./requestOrigin";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 
 export function getGoogleRedirectUri(request?: NextRequest): string {
-  const base = process.env.APP_BASE_URL || (request ? getRequestOrigin(request) : "http://localhost:8000");
+  const base = process.env.APP_BASE_URL || (request ? getRequestOrigin(request) : DEFAULT_APP_ORIGIN);
   return `${base.replace(/\/$/, "")}/api/auth/google/callback`;
 }
 

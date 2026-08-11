@@ -1,4 +1,6 @@
-import { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
+
+export const DEFAULT_APP_ORIGIN = "http://localhost:8080";
 
 // APP_BASE_URL 沒設定時，退而求其次用實際進來的 request 反推網域，
 // 避免忘記設定環境變數時 OAuth 導向直接壞掉（redirect_uri 變成 localhost）。
@@ -13,4 +15,8 @@ export function getRequestOrigin(request: NextRequest): string {
 // 就會是內部的 localhost:port，直接拿去組 redirect 網址會導去使用者連不到的地方。
 export function getAppOrigin(request: NextRequest): string {
   return (process.env.APP_BASE_URL || getRequestOrigin(request)).replace(/\/$/, "");
+}
+
+export function getConfiguredAppOrigin(fallback = DEFAULT_APP_ORIGIN): string {
+  return (process.env.APP_BASE_URL || fallback).replace(/\/$/, "");
 }

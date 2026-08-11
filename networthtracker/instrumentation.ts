@@ -8,6 +8,8 @@
 
 // 帶上共用密鑰，讓下面幾支內部排程專用 API 能分辨「是自己的 cron 呼叫」還是「外部任意呼叫」，
 // 避免這些會動到全部使用者資料的端點被任何人隨時從外部打來濫用。
+import { getConfiguredAppOrigin } from "./src/lib/requestOrigin";
+
 function cronHeaders(): Record<string, string> {
   const secret = process.env.CRON_SECRET;
   return secret ? { "x-cron-secret": secret } : {};
@@ -21,7 +23,7 @@ export async function register() {
   const cron = await import("node-cron");
 
   // 你的 app 實際監聽的網址，依照你 pm2 啟動時用的 port 調整
-  const BASE_URL = process.env.APP_BASE_URL || "http://localhost:3000";
+  const BASE_URL = getConfiguredAppOrigin();
 
   // 每 10 分鐘：同步價格
   cron.default.schedule(
